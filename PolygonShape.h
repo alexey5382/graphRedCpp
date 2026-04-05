@@ -39,4 +39,8 @@ public:
     std::string getType() const override { return "Polygon"; }
     void save(std::ostream& out) const override;
     void load(std::istream& in) override;
+    //--
+    std::vector<sf::Vector2f> getBasePoints() const override { return m_basePoints; }
+    void setBasePoints(const std::vector<sf::Vector2f>& pts) override { m_basePoints = pts; updateGeometry(); }
+    void applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) override;
 };

@@ -45,6 +45,7 @@ private:
 	std::vector<sf::Vector2f> m_dragStartAnchors;
 	sf::FloatRect m_dragStartGroupBounds;
 	sf::Vector2f m_dragStartFormalGroupAnchor;
+	sf::Vector2f m_scaleMouseOffset; // <-- ДОБАВИТЬ ЭТО (Смещение мыши для прямой рамки)
 
 public:
 	void addShape(std::unique_ptr<IShape> shape);

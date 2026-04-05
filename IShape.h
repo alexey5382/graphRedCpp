@@ -3,11 +3,13 @@
 #include <string> // <-- Убедись, что строка подключена
 
 // --- НОВОЕ: Структура снимка теперь доступна всем фигурам ---
+// --- НОВОЕ: Структура снимка теперь поддерживает вершины! ---
 struct ShapeSnapshot {
     sf::Vector2f position;
     sf::Vector2f size;
     sf::Vector2f anchorOffset;
     float rotation;
+    std::vector<sf::Vector2f> basePoints;
 };
 
 class IShape {
@@ -65,4 +67,8 @@ public:
     virtual void scaleFromHandle(int handle, sf::Vector2f mousePos) = 0;
     //--
     virtual void resizeFromBoundingBox(float newWidth, float newHeight) = 0;
+    //--
+    virtual std::vector<sf::Vector2f> getBasePoints() const = 0;
+    virtual void setBasePoints(const std::vector<sf::Vector2f>& pts) = 0;
+    virtual void applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) = 0;
 };

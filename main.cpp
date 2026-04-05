@@ -283,12 +283,12 @@ int main() {
                 // Статическая память для снимков UI
                 static bool isGroupUIScaling = false;
                 static float baseGWidth = 1.0f, baseGHeight = 1.0f;
+                static sf::Vector2f baseGroupAnchor;
+                static sf::Vector2f baseGroupFixedCorner;
                 static std::vector<ShapeSnapshot> uiSnapshots;
-                static std::vector<sf::FloatRect> uiStartBounds;
-                static std::vector<sf::Vector2f> uiStartAnchors;
 
                 float displayScale[2] = { currentGWidth, currentGHeight };
-                
+
                 ImGui::Text("Bounding Box Scale (W/H):");
                 ImGui::SetNextItemWidth(150);
                 bool changed1 = ImGui::SliderFloat2("##gScaleSl", displayScale, 10.0f, 2000.0f);
@@ -311,22 +311,37 @@ int main() {
                 bool changed4 = ImGui::InputFloat("##gRelInp", &displayRelScale, 0.0f, 0.0f, "%.1f");
                 bool act4 = ImGui::IsItemActivated(); bool deact4 = ImGui::IsItemDeactivated();
 
-                // ФОТОГРАФИРУЕМ ГРУППУ В МОМЕНТ КЛИКА ПО ПОЛЗУНКУ
-                if (act1 || act2 || act3 || act4) {
+                bool anyAct = act1 || act2 || act3 || act4;
+                bool anyDeact = deact1 || deact2 || deact3 || deact4;
+                bool anyChanged = changed1 || changed2 || changed3 || changed4;
+
+                // ФОТОГРАФИРУЕМ ГРУППУ
+                if (anyAct) {
                     isGroupUIScaling = true;
                     baseGWidth = currentGWidth;
                     baseGHeight = currentGHeight;
-                    uiSnapshots.clear(); uiStartBounds.clear(); uiStartAnchors.clear();
+                    baseGroupAnchor = formalGroup->anchorPoint;
+                    baseGroupFixedCorner = { minX, minY };
+                    uiSnapshots.clear();
                     for (auto* shape : selected) {
-                        uiSnapshots.push_back({shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation()});
-                        uiStartBounds.push_back(shape->getBounds());
-                        uiStartAnchors.push_back(shape->getPosition() + shape->getAnchorOffset());
+                        uiSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation(), shape->getBasePoints() });
                     }
                 }
-                if (deact1 || deact2 || deact3 || deact4) isGroupUIScaling = false;
 
-                // ПРИМЕНЯЕМ МАСШТАБ СТРОГО К СНИМКУ ВО ВРЕМЯ ПЕРЕТЯГИВАНИЯ
-                if (isGroupUIScaling && (changed1 || changed2 || changed3 || changed4)) {
+                // ПРИМЕНЯЕМ МАСШТАБ СТРОГО К СНИМКУ
+                if (anyChanged) {
+                    if (!isGroupUIScaling) {
+                        isGroupUIScaling = true;
+                        baseGWidth = currentGWidth;
+                        baseGHeight = currentGHeight;
+                        baseGroupAnchor = formalGroup->anchorPoint;
+                        baseGroupFixedCorner = { minX, minY };
+                        uiSnapshots.clear();
+                        for (auto* shape : selected) {
+                            uiSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation(), shape->getBasePoints() });
+                        }
+                    }
+
                     float targetW = displayScale[0];
                     float targetH = displayScale[1];
 
@@ -345,25 +360,25 @@ int main() {
                         if (i >= uiSnapshots.size()) continue;
                         auto* shape = selected[i];
                         const auto& snap = uiSnapshots[i];
-                        sf::FloatRect initialB = uiStartBounds[i];
-                        sf::Vector2f initialAnchor = uiStartAnchors[i];
 
-                        // Откатываем фигуру к идеальному снимку
                         shape->setPosition(snap.position);
                         shape->setSize(snap.size);
                         shape->setAnchorOffset(snap.anchorOffset);
                         shape->setRotation(snap.rotation);
+                        if (!snap.basePoints.empty()) shape->setBasePoints(snap.basePoints);
 
-                        // Увеличиваем размер фигуры
-                        shape->resizeFromBoundingBox(initialB.size.x * Sx, initialB.size.y * Sy);
-
-                        // Пропорционально отдаляем якорь фигуры от центра группы
-                        sf::Vector2f dist = initialAnchor - formalGroup->anchorPoint;
-                        sf::Vector2f newShapeAnchor = formalGroup->anchorPoint + sf::Vector2f(dist.x * Sx, dist.y * Sy);
-                        shape->setAnchorPositionWorld(newShapeAnchor);
+                        // Используем НАШ НОВЫЙ МЕТОД глобального искажения для всей группы!
+                        shape->applyGlobalScale(baseGroupFixedCorner, Sx, Sy);
                     }
+
+                    // Масштабируем якорь самой группы
+                    sf::Vector2f dist = baseGroupAnchor - baseGroupFixedCorner;
+                    formalGroup->anchorPoint = baseGroupFixedCorner + sf::Vector2f(dist.x * Sx, dist.y * Sy);
                 }
-                // ==========================================
+
+                if (anyDeact) {
+                    isGroupUIScaling = false;
+                }
                 // ==========================================
 
                 // Координаты фигур 

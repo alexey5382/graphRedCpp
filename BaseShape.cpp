@@ -123,7 +123,7 @@ int BaseShape::getHitHandle(sf::Vector2f mousePos) const {
         anchorWorld.y - fixedDist * std::cos(rad)
     );
     if (checkHit(rotHandleWorld.x, rotHandleWorld.y)) return 7;
-
+    if (checkHit(anchorWorld.x, anchorWorld.y)) return 5;
 
     // Углы
     sf::FloatRect bounds = getBounds();
@@ -159,48 +159,58 @@ void BaseShape::setGlobalFillColor(sf::Color color) {
     updateGeometry();
 }
 void BaseShape::save(std::ostream& out) const {
-    // Чтобы строка с пробелами не сломала чтение, заменяем пустую группу на "NONE"
     std::string safeGroupId = m_groupId.empty() ? "NONE" : m_groupId;
 
-    out << m_position.x << " " << m_position.y << " "
-        << m_size.x << " " << m_size.y << " "
-        << m_isClosed << " "
-        << safeGroupId << " "
-        << m_anchorOffset.x << " " << m_anchorOffset.y << " "
-        << m_rotation << " "
-        << (int)m_fillColor.r << " " << (int)m_fillColor.g << " "
-        << (int)m_fillColor.b << " " << (int)m_fillColor.a << "\n";
+    out << "Position: " << m_position.x << " " << m_position.y << "\n"
+        << "Size: " << m_size.x << " " << m_size.y << "\n"
+        << "IsClosed: " << m_isClosed << "\n"
+        << "GroupId: " << safeGroupId << "\n"
+        << "AnchorOffset: " << m_anchorOffset.x << " " << m_anchorOffset.y << "\n"
+        << "Rotation: " << m_rotation << "\n"
+        << "FillColor: " << (int)m_fillColor.r << " " << (int)m_fillColor.g << " " << (int)m_fillColor.b << " " << (int)m_fillColor.a << "\n";
 
-    out << m_sideColors.size() << " ";
+    out << "SideColorsCount: " << m_sideColors.size() << "\n";
     for (const auto& c : m_sideColors) {
-        out << (int)c.r << " " << (int)c.g << " " << (int)c.b << " " << (int)c.a << " ";
+        out << "  " << (int)c.r << " " << (int)c.g << " " << (int)c.b << " " << (int)c.a << "\n";
     }
-    out << "\n" << m_sideThicknesses.size() << " ";
+
+    out << "SideThicknessesCount: " << m_sideThicknesses.size() << "\n  ";
     for (float t : m_sideThicknesses) out << t << " ";
     out << "\n";
 }
-
 void BaseShape::load(std::istream& in) {
+    std::string dummy;
     std::string safeGroupId;
-    in >> m_position.x >> m_position.y >> m_size.x >> m_size.y >> m_isClosed >> safeGroupId;
+
+    in >> dummy >> m_position.x >> m_position.y;
+    in >> dummy >> m_size.x >> m_size.y;
+    in >> dummy >> m_isClosed;
+
+    in >> dummy >> safeGroupId;
     m_groupId = (safeGroupId == "NONE") ? "" : safeGroupId;
 
-    in >> m_anchorOffset.x >> m_anchorOffset.y >> m_rotation;
+    in >> dummy >> m_anchorOffset.x >> m_anchorOffset.y;
+    in >> dummy >> m_rotation;
 
     int r, g, b, a;
-    in >> r >> g >> b >> a; m_fillColor = sf::Color(r, g, b, a);
+    in >> dummy >> r >> g >> b >> a;
+    m_fillColor = sf::Color(r, g, b, a);
 
-    size_t colCount; in >> colCount; m_sideColors.resize(colCount);
+    size_t colCount;
+    in >> dummy >> colCount;
+    m_sideColors.resize(colCount);
     for (size_t i = 0; i < colCount; i++) {
-        in >> r >> g >> b >> a; m_sideColors[i] = sf::Color(r, g, b, a);
+        in >> r >> g >> b >> a;
+        m_sideColors[i] = sf::Color(r, g, b, a);
     }
 
-    size_t thickCount; in >> thickCount; m_sideThicknesses.resize(thickCount);
+    size_t thickCount;
+    in >> dummy >> thickCount;
+    m_sideThicknesses.resize(thickCount);
     for (size_t i = 0; i < thickCount; i++) {
         in >> m_sideThicknesses[i];
     }
 }
-
 void BaseShape::setAnchorPositionWorld(sf::Vector2f newWorldAnchor) {
     if (m_rotation == 0.0f) {
         m_anchorOffset = newWorldAnchor - m_position;
@@ -225,27 +235,81 @@ void BaseShape::setAnchorPositionWorld(sf::Vector2f newWorldAnchor) {
 void BaseShape::setRotationFromMouse(sf::Vector2f mousePos) {
     sf::Vector2f anchorWorld = m_position + m_anchorOffset;
 
-    // Вектор маркера в базовом (неповернутом) состоянии - торчит строго вверх
-    sf::Vector2f unrotRotHandle(m_position.x, m_position.y - m_size.y - 30.0f);
-    sf::Vector2f baseVec = unrotRotHandle - anchorWorld;
+    // Поскольку зеленый маркер теперь всегда ровно сверху от якоря (при 0 градусов),
+    // наш базовый вектор направлен строго вверх (по оси -Y)
+    sf::Vector2f baseVec(0.0f, -1.0f);
 
-    // Если якорь стоит прямо на ручке (редко, но защита от atan2(0,0))
-    if (std::abs(baseVec.x) < 0.001f && std::abs(baseVec.y) < 0.001f) return;
+    sf::Vector2f mouseVec = mousePos - anchorWorld;
 
+    // Защита от деления на ноль, если мышка прямо на якоре
+    if (std::abs(mouseVec.x) < 0.001f && std::abs(mouseVec.y) < 0.001f) return;
+
+    // Считаем углы через арктангенс
     float baseAngle = std::atan2(baseVec.y, baseVec.x);
-    float mouseAngle = std::atan2(mousePos.y - anchorWorld.y, mousePos.x - anchorWorld.x);
+    float mouseAngle = std::atan2(mouseVec.y, mouseVec.x);
 
+    // Получаем разницу и переводим в градусы
     float rotRad = mouseAngle - baseAngle;
     float rotDeg = rotRad * 180.0f / 3.14159265f;
 
-    // Нормализация в диапазон [-180, 180]
+    // Нормализация в диапазон [-180, 180], чтобы углы не накручивались до бесконечности
     while (rotDeg <= -180.0f) rotDeg += 360.0f;
     while (rotDeg > 180.0f) rotDeg -= 360.0f;
 
-    setRotation(rotDeg); // setRotation внутри вызывает updateGeometry
+    setRotation(rotDeg);
 }
-
 // Добавь этот метод в любое место внутри BaseShape.cpp
+
+void BaseShape::resizeFromBoundingBox(float newWidth, float newHeight) {
+    sf::FloatRect oldBounds = getBounds();
+    const float EPSILON = 0.01f;
+
+    // Если текущая рамка схлопнулась, масштабирование невозможно
+    if (oldBounds.size.x < EPSILON || oldBounds.size.y < EPSILON) return;
+
+    // Ограничиваем входные параметры
+    newWidth = std::clamp(newWidth, 5.0f, 10000.0f);
+    newHeight = std::clamp(newHeight, 5.0f, 10000.0f);
+
+    sf::Vector2f anchorWorld = m_position + m_anchorOffset;
+    float relAnchorX = (anchorWorld.x - oldBounds.position.x) / oldBounds.size.x;
+    float relAnchorY = (anchorWorld.y - oldBounds.position.y) / oldBounds.size.y;
+
+    float scaleX = newWidth / oldBounds.size.x;
+    float scaleY = newHeight / oldBounds.size.y;
+
+    // ==========================================================
+    // --- ТВОЯ ИДЕЯ: МАСШТАБИРОВАНИЕ БЕЗ УЧЕТА УГЛА ПОВОРОТА ---
+    // Мы "делаем вид, что угол равен 0" и просто применяем 
+    // коэффициенты масштабирования глобальной рамки напрямую 
+    // к локальному размеру фигуры. Это убирает любые искажения!
+    // ==========================================================
+    m_size.x *= scaleX;
+    m_size.y *= scaleY;
+
+    // Финальная проверка на разумные пределы
+    m_size.x = std::clamp(m_size.x, 2.0f, 5000.0f);
+    m_size.y = std::clamp(m_size.y, 2.0f, 5000.0f);
+
+    updateGeometry();
+
+    // 4. Узнаем новые границы (рамка могла "уехать" от якоря)
+    sf::FloatRect tempBounds = getBounds();
+
+    // Находим, где СЕЙЧАС оказалась та самая якорная точка внутри новой рамки
+    sf::Vector2f tempAnchor(
+        tempBounds.position.x + tempBounds.size.x * relAnchorX,
+        tempBounds.position.y + tempBounds.size.y * relAnchorY
+    );
+
+    // 5. Сдвигаем всю фигуру, чтобы якорь визуально остался на своем старом месте
+    sf::Vector2f shift = anchorWorld - tempAnchor;
+    m_position += shift;
+    updateGeometry();
+
+    // 6. Восстанавливаем математическую точность якоря
+    m_anchorOffset = anchorWorld - m_position;
+}
 
 void BaseShape::scaleFromHandle(int handle, sf::Vector2f mousePos) {
     if (handle < 1 || handle > 4) return;
@@ -295,19 +359,12 @@ void BaseShape::scaleFromHandle(int handle, sf::Vector2f mousePos) {
     float scaleX = newWidth / oldBounds.size.x;
     float scaleY = newHeight / oldBounds.size.y;
 
-    // Проекция на локальные оси
-    float rad = m_rotation * 3.14159265f / 180.0f;
-    float cosA = std::cos(rad);
-    float sinA = std::sin(rad);
-    float cos2 = cosA * cosA;
-    float sin2 = sinA * sinA;
+    // ========================================================
+    // --- ТВОЯ ИДЕЯ: МАСШТАБИРУЕМ БЕЗ УЧЕТА УГЛА ПОВОРОТА ---
+    // ========================================================
+    m_size.x *= scaleX;
+    m_size.y *= scaleY;
 
-    float localScaleX = scaleX * cos2 + scaleY * sin2;
-    float localScaleY = scaleX * sin2 + scaleY * cos2;
-
-    // Применяем масштаб с ограничением
-    m_size.x *= localScaleX;
-    m_size.y *= localScaleY;
     m_size.x = std::clamp(m_size.x, 5.0f, 5000.0f);
     m_size.y = std::clamp(m_size.y, 5.0f, 5000.0f);
 
@@ -335,54 +392,39 @@ void BaseShape::scaleFromHandle(int handle, sf::Vector2f mousePos) {
 
     setAnchorPositionWorld(newAnchorWorld);
 }
-void BaseShape::resizeFromBoundingBox(float newWidth, float newHeight) {
+void BaseShape::applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) {
     sf::FloatRect oldBounds = getBounds();
-    const float EPSILON = 0.01f;
+    sf::Vector2f oldAnchorWorld = m_position + m_anchorOffset;
 
-    // Если текущая рамка схлопнулась, масштабирование невозможно
-    if (oldBounds.size.x < EPSILON || oldBounds.size.y < EPSILON) return;
+    // 1. Узнаем, какой именно угол рамки мы зафиксировали 
+    // (relX и relY будут равны 0.0 для левого/верхнего края и 1.0 для правого/нижнего)
+    float relX = (fixedCorner.x > oldBounds.position.x + oldBounds.size.x / 2.0f) ? 1.0f : 0.0f;
+    float relY = (fixedCorner.y > oldBounds.position.y + oldBounds.size.y / 2.0f) ? 1.0f : 0.0f;
 
-    // Ограничиваем входные параметры
-    newWidth = std::clamp(newWidth, 5.0f, 10000.0f);
-    newHeight = std::clamp(newHeight, 5.0f, 10000.0f);
+    // 2. Применяем масштабирование к размерам фигуры 
+    // (Это изменит m_size и обновит геометрию)
+    resizeFromBoundingBox(oldBounds.size.x * Sx, oldBounds.size.y * Sy);
 
-    sf::Vector2f anchorWorld = m_position + m_anchorOffset;
-    float relAnchorX = (anchorWorld.x - oldBounds.position.x) / oldBounds.size.x;
-    float relAnchorY = (anchorWorld.y - oldBounds.position.y) / oldBounds.size.y;
+    // 3. Вычисляем новые границы фигуры после изменения размера
+    sf::FloatRect newBounds = getBounds();
 
-    float scaleX = newWidth / oldBounds.size.x;
-    float scaleY = newHeight / oldBounds.size.y;
-
-    float rad = m_rotation * 3.14159265f / 180.0f;
-    float cosA = std::cos(rad);
-    float sinA = std::sin(rad);
-
-    float localScaleX = scaleX * cosA * cosA + scaleY * sinA * sinA;
-    float localScaleY = scaleX * sinA * sinA + scaleY * cosA * cosA;
-
-    m_size.x *= localScaleX;
-    m_size.y *= localScaleY;
-
-    // Финальная проверка на разумные пределы
-    m_size.x = std::clamp(m_size.x, 2.0f, 5000.0f);
-    m_size.y = std::clamp(m_size.y, 2.0f, 5000.0f);
-
-    updateGeometry();
-
-    // 4. Узнаем новые границы (рамка могла "уехать" от якоря)
-    sf::FloatRect tempBounds = getBounds();
-
-    // Находим, где СЕЙЧАС оказалась та самая якорная точка внутри новой рамки
-    sf::Vector2f tempAnchor(
-        tempBounds.position.x + tempBounds.size.x * relAnchorX,
-        tempBounds.position.y + tempBounds.size.y * relAnchorY
+    // 4. Находим, куда "уехал" наш зафиксированный угол в новых координатах
+    sf::Vector2f newCorner(
+        newBounds.position.x + newBounds.size.x * relX,
+        newBounds.position.y + newBounds.size.y * relY
     );
 
-    // 5. Сдвигаем всю фигуру, чтобы якорь визуально остался на своем старом месте
-    sf::Vector2f shift = anchorWorld - tempAnchor;
+    // 5. ИДЕАЛЬНАЯ КОРРЕКЦИЯ: Жестко сдвигаем всю фигуру так, 
+    // чтобы "уехавший" угол вернулся ровно в fixedCorner
+    sf::Vector2f shift = fixedCorner - newCorner;
     m_position += shift;
-    updateGeometry();
 
-    // 6. Восстанавливаем математическую точность якоря
-    m_anchorOffset = anchorWorld - m_position;
+    // 6. Пропорционально смещаем оранжевый якорь фигуры
+    sf::Vector2f targetAnchor(
+        fixedCorner.x + (oldAnchorWorld.x - fixedCorner.x) * Sx,
+        fixedCorner.y + (oldAnchorWorld.y - fixedCorner.y) * Sy
+    );
+    m_anchorOffset = targetAnchor - m_position;
+
+    updateGeometry();
 }

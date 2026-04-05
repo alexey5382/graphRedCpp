@@ -376,16 +376,30 @@ void PolygonShape::showImGuiProperties() {
     bool changed4 = ImGui::InputFloat("##pRelInp", &relScale, 0.0f, 0.0f, "%.1f");
     bool act4 = ImGui::IsItemActivated(); bool deact4 = ImGui::IsItemDeactivated();
 
-    if (act1 || act2 || act3 || act4) {
+    bool anyAct = act1 || act2 || act3 || act4;
+    bool anyDeact = deact1 || deact2 || deact3 || deact4;
+    bool anyChanged = changed1 || changed2 || changed3 || changed4;
+
+    // 1. Старт захвата ползунка
+    if (anyAct) {
         isShapeUIScaling = true;
-        uiShapeSnap = { m_position, m_size, m_anchorOffset, m_rotation };
+        uiShapeSnap = { m_position, m_size, m_anchorOffset, m_rotation, m_basePoints };
         uiShapeStartBounds = bounds;
         baseW = bounds.size.x;
         baseH = bounds.size.y;
     }
-    if (deact1 || deact2 || deact3 || deact4) isShapeUIScaling = false;
 
-    if (isShapeUIScaling && (changed1 || changed2 || changed3 || changed4)) {
+    // 2. Обработка изменений
+    if (anyChanged) {
+        // Фолбек: если клик не зарегистрировался (ввод с клавиатуры), делаем снимок прямо сейчас
+        if (!isShapeUIScaling) {
+            isShapeUIScaling = true;
+            uiShapeSnap = { m_position, m_size, m_anchorOffset, m_rotation, m_basePoints };
+            uiShapeStartBounds = bounds;
+            baseW = bounds.size.x;
+            baseH = bounds.size.y;
+        }
+
         float targetW = scale[0];
         float targetH = scale[1];
 
@@ -397,26 +411,54 @@ void PolygonShape::showImGuiProperties() {
             targetH = baseH * factor;
         }
 
+        // Возвращаем фигуру к снимку
         m_position = uiShapeSnap.position;
         m_size = uiShapeSnap.size;
         m_anchorOffset = uiShapeSnap.anchorOffset;
         m_rotation = uiShapeSnap.rotation;
+        m_basePoints = uiShapeSnap.basePoints;
 
         float Sx = targetW / baseW;
         float Sy = targetH / baseH;
-        resizeFromBoundingBox(uiShapeStartBounds.size.x * Sx, uiShapeStartBounds.size.y * Sy);
+
+        // Магия глобального масштаба теперь работает и из UI!
+        sf::Vector2f fixedCorner = { uiShapeStartBounds.position.x, uiShapeStartBounds.position.y };
+        applyGlobalScale(fixedCorner, Sx, Sy);
     }
+
+    // 3. Отключаем режим СТРОГО после обработки изменений
+    if (anyDeact) {
+        isShapeUIScaling = false;
+    }
+
     ImGui::Separator();
 
-    // ЗАЛИВКА
+    ImGui::Text("Appearance");
+
+    // --- НОВАЯ КНОПКА СЛУЧАЙНЫХ ПАРАМЕТРОВ (ДЛЯ ВСЕХ СТОРОН!) ---
+    if (ImGui::Button("Randomize Colors & Thickness", ImVec2(-1, 0))) {
+        m_fillColor = sf::Color(std::rand() % 256, std::rand() % 256, std::rand() % 256, 100 + std::rand() % 155);
+
+        // Проходим циклом и назначаем КАЖДОЙ стороне свой случайный цвет
+        for (auto& c : m_sideColors) {
+            c = sf::Color(std::rand() % 256, std::rand() % 256, std::rand() % 256, 255);
+        }
+        // Проходим циклом и назначаем КАЖДОЙ стороне случайную толщину (от 2 до 30)
+        for (auto& t : m_sideThicknesses) {
+            t = 2.0f + static_cast<float>(std::rand() % 28);
+        }
+        updateGeometry();
+    }
+
+    // Заливка
     if (m_isClosed) {
         float fill[4] = { m_fillColor.r / 255.f, m_fillColor.g / 255.f, m_fillColor.b / 255.f, m_fillColor.a / 255.f };
         if (ImGui::ColorEdit4("Fill Color", fill)) {
             m_fillColor = sf::Color(fill[0] * 255, fill[1] * 255, fill[2] * 255, fill[3] * 255);
             updateGeometry();
         }
-        ImGui::Separator();
     }
+    ImGui::Separator();
 
     // ЯКОРЬ
     sf::Vector2f worldAnchor = m_position + m_anchorOffset;
@@ -927,24 +969,28 @@ int PolygonShape::getHitSideIndex(sf::Vector2f mousePos) const {
         if (dist2 <= thick * thick) return i;
     }
     return -1;
-}void PolygonShape::save(std::ostream& out) const {
-    BaseShape::save(out);
-    out << m_basePoints.size() << "\n";
-    for (const auto& p : m_basePoints) out << p.x << " " << p.y << " ";
-    out << "\n";
 }
 
+void PolygonShape::save(std::ostream& out) const {
+    BaseShape::save(out);
+    out << "PointsCount: " << m_basePoints.size() << "\n";
+    for (const auto& p : m_basePoints) {
+        out << "  " << p.x << " " << p.y << "\n";
+    }
+}
 void PolygonShape::load(std::istream& in) {
     BaseShape::load(in);
+    std::string dummy;
     size_t ptsCount;
-    in >> ptsCount;
+    
+    in >> dummy >> ptsCount; // Съедает "PointsCount:"
     m_basePoints.resize(ptsCount);
+    
     for (size_t i = 0; i < ptsCount; i++) {
         in >> m_basePoints[i].x >> m_basePoints[i].y;
     }
     updateGeometry();
-}
-// Помощник для вращения
+}// Помощник для вращения
 
 sf::Vector2f PolygonShape::getIntersection(sf::Vector2f p1, sf::Vector2f dir1, sf::Vector2f p2, sf::Vector2f dir2, sf::Vector2f fallback, sf::Vector2f corner) const {
     float cross = dir1.x * dir2.y - dir1.y * dir2.x;
@@ -956,4 +1002,49 @@ sf::Vector2f PolygonShape::getIntersection(sf::Vector2f p1, sf::Vector2f dir1, s
     float offsetLen = std::sqrt(offset.x * offset.x + offset.y * offset.y);
     if (offsetLen > 200.0f) intersection = corner + normalize(offset) * 200.0f;
     return intersection;
+}
+
+void PolygonShape::applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) {
+    size_t n = m_basePoints.size();
+    std::vector<sf::Vector2f> worldPts(n);
+    sf::Vector2f anchorWorld = m_position + m_anchorOffset;
+
+    // Вычисляем новую позицию якоря (он тоже масштабируется глобально)
+    sf::Vector2f newAnchorWorld(
+        fixedCorner.x + (anchorWorld.x - fixedCorner.x) * Sx,
+        fixedCorner.y + (anchorWorld.y - fixedCorner.y) * Sy
+    );
+
+    float minX = 999999.f, minY = 999999.f, maxX = -999999.f, maxY = -999999.f;
+
+    for (size_t i = 0; i < n; i++) {
+        // 1. Получаем мировые координаты точки
+        sf::Vector2f unrot(m_position.x + m_basePoints[i].x * m_size.x, m_position.y + m_basePoints[i].y * m_size.y);
+        sf::Vector2f wp = BaseShape::rotatePoint(unrot, anchorWorld, m_rotation);
+
+        // 2. Применяем глобальный масштаб (точки идеально следуют за рамкой)
+        wp.x = fixedCorner.x + (wp.x - fixedCorner.x) * Sx;
+        wp.y = fixedCorner.y + (wp.y - fixedCorner.y) * Sy;
+
+        // 3. "Запекаем" точку обратно, вращая её в обратную сторону вокруг НОВОГО якоря
+        wp = BaseShape::rotatePoint(wp, newAnchorWorld, -m_rotation);
+        worldPts[i] = wp;
+
+        if (wp.x < minX) minX = wp.x;
+        if (wp.x > maxX) maxX = wp.x;
+        if (wp.y < minY) minY = wp.y;
+        if (wp.y > maxY) maxY = wp.y;
+    }
+
+    // Пересчитываем локальные параметры фигуры
+    m_position = { minX, minY };
+    m_size = { std::max(5.0f, maxX - minX), std::max(5.0f, maxY - minY) };
+
+    for (size_t i = 0; i < n; i++) {
+        m_basePoints[i].x = (worldPts[i].x - m_position.x) / m_size.x;
+        m_basePoints[i].y = (worldPts[i].y - m_position.y) / m_size.y;
+    }
+
+    m_anchorOffset = newAnchorWorld - m_position;
+    updateGeometry();
 }

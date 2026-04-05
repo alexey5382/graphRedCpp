@@ -76,4 +76,8 @@ public:
     //в файл
     void save(std::ostream& out) const override;
     void load(std::istream& in) override;
+    //--
+    std::vector<sf::Vector2f> getBasePoints() const override { return {}; }
+    void setBasePoints(const std::vector<sf::Vector2f>& pts) override {}
+    void applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) override;
 };
