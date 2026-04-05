@@ -2,6 +2,14 @@
 #include <SFML/Graphics.hpp>
 #include <string> // <-- Убедись, что строка подключена
 
+// --- НОВОЕ: Структура снимка теперь доступна всем фигурам ---
+struct ShapeSnapshot {
+    sf::Vector2f position;
+    sf::Vector2f size;
+    sf::Vector2f anchorOffset;
+    float rotation;
+};
+
 class IShape {
 public:
     virtual ~IShape() = default;
@@ -42,11 +50,19 @@ public:
     virtual int getHitSideIndex(sf::Vector2f mousePos) const = 0;
     virtual void setSelectedSide(int index) = 0;
     virtual int getSelectedSide() const = 0;
-
+    //
+    virtual void setSelectedVertex(int index) = 0;
+    virtual int getSelectedVertex() const = 0;
     // Движение отдельной вершины
     virtual void moveVertex(int index, sf::Vector2f delta) = 0;
     // --- СОХРАНЕНИЕ И ЗАГРУЗКА ---
     virtual std::string getType() const = 0; // Возвращает "Polygon" или "Circle"
     virtual void save(std::ostream& out) const = 0;
     virtual void load(std::istream& in) = 0;
+    // Добавь эти методы в конец IShape
+    virtual void setAnchorPositionWorld(sf::Vector2f newWorldAnchor) = 0;
+    virtual void setRotationFromMouse(sf::Vector2f mousePos) = 0;
+    virtual void scaleFromHandle(int handle, sf::Vector2f mousePos) = 0;
+    //--
+    virtual void resizeFromBoundingBox(float newWidth, float newHeight) = 0;
 };

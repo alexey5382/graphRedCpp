@@ -23,11 +23,25 @@ int main() {
     // -----------------------------------------
     // Создаем нашу сцену (замена MainCanvas)
     Scene scene;
+    scene.initCursors(); // <-- ДОБАВИТЬ ЭТО
 
     sf::Clock deltaClock;
     while (window.isOpen()) {
         while (const std::optional event = window.pollEvent()) {
             ImGui::SFML::ProcessEvent(window, *event);
+            // Получаем мировые координаты мыши
+            sf::Vector2i pixelPos = sf::Mouse::getPosition(window);
+            sf::Vector2f worldPos = window.mapPixelToCoords(pixelPos);
+
+            // Передаем координаты в сцену, ТОЛЬКО если мышка не в меню ImGui
+            if (!io.WantCaptureMouse) {
+                scene.handleMouseMove(worldPos);
+                scene.updateCursor(window, worldPos);
+            }
+            else {
+                // Если мышка ушла в ImGui, сбрасываем курсор через метод Сцены
+                scene.resetCursor(window); // <-- ИСПРАВЛЕНИЕ ЗДЕСЬ
+            }
             if (event->is<sf::Event::Closed>()) {
                 window.close();
             }
@@ -248,6 +262,109 @@ int main() {
                     }
                     formalGroup->anchorPoint = { minX + (maxX - minX) / 2.0f, minY + (maxY - minY) / 2.0f };
                 }
+
+                // ==========================================
+                // --- ИДЕАЛЬНОЕ МАСШТАБИРОВАНИЕ ГРУППЫ ---
+                // ==========================================
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1.0f), "Group Scale:");
+
+                float minX = 999999.f, minY = 999999.f, maxX = -999999.f, maxY = -999999.f;
+                for (auto* shape : selected) {
+                    sf::FloatRect b = shape->getBounds();
+                    if (b.position.x < minX) minX = b.position.x;
+                    if (b.position.y < minY) minY = b.position.y;
+                    if (b.position.x + b.size.x > maxX) maxX = b.position.x + b.size.x;
+                    if (b.position.y + b.size.y > maxY) maxY = b.position.y + b.size.y;
+                }
+                float currentGWidth = std::max(0.1f, maxX - minX);
+                float currentGHeight = std::max(0.1f, maxY - minY);
+
+                // Статическая память для снимков UI
+                static bool isGroupUIScaling = false;
+                static float baseGWidth = 1.0f, baseGHeight = 1.0f;
+                static std::vector<ShapeSnapshot> uiSnapshots;
+                static std::vector<sf::FloatRect> uiStartBounds;
+                static std::vector<sf::Vector2f> uiStartAnchors;
+
+                float displayScale[2] = { currentGWidth, currentGHeight };
+                
+                ImGui::Text("Bounding Box Scale (W/H):");
+                ImGui::SetNextItemWidth(150);
+                bool changed1 = ImGui::SliderFloat2("##gScaleSl", displayScale, 10.0f, 2000.0f);
+                bool act1 = ImGui::IsItemActivated(); bool deact1 = ImGui::IsItemDeactivated();
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(120);
+                bool changed2 = ImGui::InputFloat2("##gScaleInp", displayScale, "%.1f");
+                bool act2 = ImGui::IsItemActivated(); bool deact2 = ImGui::IsItemDeactivated();
+
+                ImGui::Text("Relative Scale (%%):");
+                float canvasDiag = std::sqrt(1200.0f * 1200.0f + 800.0f * 800.0f);
+                float currentGDiag = std::sqrt(currentGWidth * currentGWidth + currentGHeight * currentGHeight);
+                float displayRelScale = (currentGDiag / canvasDiag) * 500.0f;
+
+                ImGui::SetNextItemWidth(150);
+                bool changed3 = ImGui::SliderFloat("##gRelSl", &displayRelScale, 1.0f, 500.0f, "%.1f %%");
+                bool act3 = ImGui::IsItemActivated(); bool deact3 = ImGui::IsItemDeactivated();
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(120);
+                bool changed4 = ImGui::InputFloat("##gRelInp", &displayRelScale, 0.0f, 0.0f, "%.1f");
+                bool act4 = ImGui::IsItemActivated(); bool deact4 = ImGui::IsItemDeactivated();
+
+                // ФОТОГРАФИРУЕМ ГРУППУ В МОМЕНТ КЛИКА ПО ПОЛЗУНКУ
+                if (act1 || act2 || act3 || act4) {
+                    isGroupUIScaling = true;
+                    baseGWidth = currentGWidth;
+                    baseGHeight = currentGHeight;
+                    uiSnapshots.clear(); uiStartBounds.clear(); uiStartAnchors.clear();
+                    for (auto* shape : selected) {
+                        uiSnapshots.push_back({shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation()});
+                        uiStartBounds.push_back(shape->getBounds());
+                        uiStartAnchors.push_back(shape->getPosition() + shape->getAnchorOffset());
+                    }
+                }
+                if (deact1 || deact2 || deact3 || deact4) isGroupUIScaling = false;
+
+                // ПРИМЕНЯЕМ МАСШТАБ СТРОГО К СНИМКУ ВО ВРЕМЯ ПЕРЕТЯГИВАНИЯ
+                if (isGroupUIScaling && (changed1 || changed2 || changed3 || changed4)) {
+                    float targetW = displayScale[0];
+                    float targetH = displayScale[1];
+
+                    if (changed3 || changed4) {
+                        float targetDiag = (displayRelScale / 500.0f) * canvasDiag;
+                        float baseDiag = std::sqrt(baseGWidth * baseGWidth + baseGHeight * baseGHeight);
+                        float factor = targetDiag / baseDiag;
+                        targetW = baseGWidth * factor;
+                        targetH = baseGHeight * factor;
+                    }
+
+                    float Sx = targetW / baseGWidth;
+                    float Sy = targetH / baseGHeight;
+
+                    for (size_t i = 0; i < selected.size(); i++) {
+                        if (i >= uiSnapshots.size()) continue;
+                        auto* shape = selected[i];
+                        const auto& snap = uiSnapshots[i];
+                        sf::FloatRect initialB = uiStartBounds[i];
+                        sf::Vector2f initialAnchor = uiStartAnchors[i];
+
+                        // Откатываем фигуру к идеальному снимку
+                        shape->setPosition(snap.position);
+                        shape->setSize(snap.size);
+                        shape->setAnchorOffset(snap.anchorOffset);
+                        shape->setRotation(snap.rotation);
+
+                        // Увеличиваем размер фигуры
+                        shape->resizeFromBoundingBox(initialB.size.x * Sx, initialB.size.y * Sy);
+
+                        // Пропорционально отдаляем якорь фигуры от центра группы
+                        sf::Vector2f dist = initialAnchor - formalGroup->anchorPoint;
+                        sf::Vector2f newShapeAnchor = formalGroup->anchorPoint + sf::Vector2f(dist.x * Sx, dist.y * Sy);
+                        shape->setAnchorPositionWorld(newShapeAnchor);
+                    }
+                }
+                // ==========================================
+                // ==========================================
 
                 // Координаты фигур 
                 if (ImGui::CollapsingHeader("Shapes Coordinates (World & Relative)", ImGuiTreeNodeFlags_DefaultOpen)) {

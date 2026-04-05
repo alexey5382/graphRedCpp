@@ -4,6 +4,90 @@
 #include "CircleShape.h"
 #include <fstream>
 
+void Scene::initCursors() {
+    // В SFML 3 используем createFromSystem и строгие перечисления (Type::)
+    m_cursorArrow = sf::Cursor::createFromSystem(sf::Cursor::Type::Arrow);
+    m_cursorCross = sf::Cursor::createFromSystem(sf::Cursor::Type::Cross);
+    m_cursorHand = sf::Cursor::createFromSystem(sf::Cursor::Type::Hand);
+    m_cursorSizeTLBR = sf::Cursor::createFromSystem(sf::Cursor::Type::SizeTopLeftBottomRight);
+    m_cursorSizeBLTR = sf::Cursor::createFromSystem(sf::Cursor::Type::SizeBottomLeftTopRight);
+    m_cursorSizeAll = sf::Cursor::createFromSystem(sf::Cursor::Type::SizeAll);
+
+    m_cursorsLoaded = true;
+}
+
+void Scene::updateCursor(sf::RenderWindow& window, sf::Vector2f mousePos) {
+    if (!m_cursorsLoaded) return;
+
+    if (m_isDrawingMode) {
+        if (m_cursorCross) window.setMouseCursor(*m_cursorCross);
+        return;
+    }
+
+    int activeHandle = 0;
+    bool hoverSide = false;
+    bool hoverShape = false;
+
+    if (m_isDragging) {
+        activeHandle = m_draggedHandle;
+    }
+    else {
+        // --- НОВОЕ: Ищем наведение на углы группы ---
+        if (m_selectedShapes.size() > 1) {
+            float minX = 99999.f, minY = 99999.f, maxX = -99999.f, maxY = -99999.f;
+            for (auto* shape : m_selectedShapes) {
+                sf::FloatRect b = shape->getBounds();
+                if (b.position.x < minX) minX = b.position.x;
+                if (b.position.y < minY) minY = b.position.y;
+                if (b.position.x + b.size.x > maxX) maxX = b.position.x + b.size.x;
+                if (b.position.y + b.size.y > maxY) maxY = b.position.y + b.size.y;
+            }
+            float hw = 6.0f;
+            if (mousePos.x >= minX - hw && mousePos.x <= minX + hw && mousePos.y >= minY - hw && mousePos.y <= minY + hw) activeHandle = 21;
+            else if (mousePos.x >= maxX - hw && mousePos.x <= maxX + hw && mousePos.y >= minY - hw && mousePos.y <= minY + hw) activeHandle = 22;
+            else if (mousePos.x >= maxX - hw && mousePos.x <= maxX + hw && mousePos.y >= maxY - hw && mousePos.y <= maxY + hw) activeHandle = 23;
+            else if (mousePos.x >= minX - hw && mousePos.x <= minX + hw && mousePos.y >= maxY - hw && mousePos.y <= maxY + hw) activeHandle = 24;
+        }
+
+        // Если не попали в группу, ищем маркеры фигур (старый код)
+        if (activeHandle == 0) {
+            for (auto* shape : m_selectedShapes) {
+                activeHandle = shape->getHitHandle(mousePos);
+                if (activeHandle != 0) break;
+                if (shape->getHitSideIndex(mousePos) != -1) { hoverSide = true; break; }
+            }
+            if (activeHandle == 0 && !hoverSide) {
+                for (auto* shape : m_selectedShapes) {
+                    if (shape->contains(mousePos)) { hoverShape = true; break; }
+                }
+            }
+        }
+    }
+
+    // Разыменовываем optional через * перед передачей в окно
+    // Разыменовываем optional
+    if (activeHandle == 1 || activeHandle == 3 || activeHandle == 21 || activeHandle == 23) {
+        if (m_cursorSizeTLBR) window.setMouseCursor(*m_cursorSizeTLBR);
+    }
+    else if (activeHandle == 2 || activeHandle == 4 || activeHandle == 22 || activeHandle == 24) {
+        if (m_cursorSizeBLTR) window.setMouseCursor(*m_cursorSizeBLTR);
+    }
+    else if (activeHandle == 5 || activeHandle == 6 || hoverShape) {
+        if (m_cursorSizeAll) window.setMouseCursor(*m_cursorSizeAll);
+    }
+    else if (activeHandle == 7 || activeHandle >= 100 || hoverSide) {
+        if (m_cursorHand) window.setMouseCursor(*m_cursorHand);
+    }
+    else {
+        if (m_cursorArrow) window.setMouseCursor(*m_cursorArrow);
+    }
+}
+
+// Новый метод для сброса курсора при входе в ImGui
+void Scene::resetCursor(sf::RenderWindow& window) {
+    if (m_cursorArrow) window.setMouseCursor(*m_cursorArrow);
+}
+
 void Scene::addShape(std::unique_ptr<IShape> shape) { m_shapes.push_back(std::move(shape)); }
 
 void Scene::draw(sf::RenderTarget& target) const {
@@ -28,6 +112,16 @@ void Scene::draw(sf::RenderTarget& target) const {
         globalBox.setOutlineThickness(2.0f);
         target.draw(globalBox);
 
+        float hw = 5.0f;
+        sf::RectangleShape handle(sf::Vector2f(hw * 2, hw * 2));
+        handle.setFillColor(sf::Color::White);
+        handle.setOutlineColor(sf::Color(30, 144, 255));
+        handle.setOutlineThickness(1.5f);
+
+        handle.setPosition({ minX - hw, minY - hw }); target.draw(handle); // TL
+        handle.setPosition({ maxX - hw, minY - hw }); target.draw(handle); // TR
+        handle.setPosition({ maxX - hw, maxY - hw }); target.draw(handle); // BR
+        handle.setPosition({ minX - hw, maxY - hw }); target.draw(handle); // BL
         
 
         
@@ -102,12 +196,65 @@ void Scene::clearSelection() {
 }
 
 void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool isCtrlPressed) {
-    // 1. Проверяем ОРАНЖЕВЫЙ ЯКОРЬ группы
     ShapeGroup* formalGroup = getFormalSelectedGroup();
     if (m_isDrawingMode) {
+        if (isShiftPressed && !m_drawingPoints.empty()) {
+            sf::Vector2f lastPt = m_drawingPoints.back();
+            sf::Vector2f diff = mousePos - lastPt;
+
+            float angle = std::atan2(diff.y, diff.x);
+            float len = std::sqrt(diff.x * diff.x + diff.y * diff.y);
+
+            const float snapRad = 15.0f * 3.14159265f / 180.0f;
+            angle = std::round(angle / snapRad) * snapRad;
+
+            mousePos = lastPt + sf::Vector2f(std::cos(angle) * len, std::sin(angle) * len);
+        }
+
         m_drawingPoints.push_back(mousePos);
-        return; // Больше ничего не делаем, фигура не выделяется
+        return;
+    }    
+    // --- 1. Проверяем маркеры масштабирования ГРУППЫ ---
+    if (m_selectedShapes.size() > 1) {
+        float minX = 99999.f, minY = 99999.f, maxX = -99999.f, maxY = -99999.f;
+        for (auto* shape : m_selectedShapes) {
+            sf::FloatRect bounds = shape->getBounds();
+            if (bounds.position.x < minX) minX = bounds.position.x;
+            if (bounds.position.y < minY) minY = bounds.position.y;
+            if (bounds.position.x + bounds.size.x > maxX) maxX = bounds.position.x + bounds.size.x;
+            if (bounds.position.y + bounds.size.y > maxY) maxY = bounds.position.y + bounds.size.y;
+        }
+
+        float hw = 6.0f;
+        auto checkHit = [&](float x, float y) { return mousePos.x >= x - hw && mousePos.x <= x + hw && mousePos.y >= y - hw && mousePos.y <= y + hw; };
+
+        int hitHandle = 0;
+        if (checkHit(minX, minY)) hitHandle = 21;
+        else if (checkHit(maxX, minY)) hitHandle = 22;
+        else if (checkHit(maxX, maxY)) hitHandle = 23;
+        else if (checkHit(minX, maxY)) hitHandle = 24;
+
+        if (hitHandle != 0) {
+            m_draggedHandle = hitHandle;
+            m_isDragging = true;
+            m_lastMousePos = mousePos;
+
+            // --- ДЕЛАЕМ СНИМОК ГРУППЫ ---
+            m_dragStartGroupBounds = sf::FloatRect({ minX, minY }, { maxX - minX, maxY - minY });
+            m_dragStartSnapshots.clear(); m_dragStartBounds.clear(); m_dragStartAnchors.clear();
+
+            for (auto* shape : m_selectedShapes) {
+                m_dragStartSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation() });
+                m_dragStartBounds.push_back(shape->getBounds());
+                m_dragStartAnchors.push_back(shape->getPosition() + shape->getAnchorOffset());
+            }
+            ShapeGroup* fg = getFormalSelectedGroup();
+            if (fg) m_dragStartFormalGroupAnchor = fg->anchorPoint;
+            return;
+        }
     }
+    // 2. Проверяем ОРАНЖЕВЫЙ ЯКОРЬ группы
+
     if (formalGroup) {
         float hw = 7.0f;
         if (mousePos.x >= formalGroup->anchorPoint.x - hw && mousePos.x <= formalGroup->anchorPoint.x + hw &&
@@ -121,11 +268,40 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
 
     // 2. Проверяем маркеры выделенных фигур
     for (auto* shape : m_selectedShapes) {
-        m_draggedHandle = shape->getHitHandle(mousePos);
-        if (m_draggedHandle != 0) {
+        int handle = shape->getHitHandle(mousePos);
+        if (handle != 0) {
+            m_draggedHandle = handle;
+            if (handle >= 100) { shape->setSelectedVertex(handle - 100); shape->setSelectedSide(-1); }
+            else { shape->setSelectedVertex(-1); }
+
             m_isDragging = true;
             m_lastMousePos = mousePos;
+
+            // --- ДЕЛАЕМ СНИМОК ОДИНОЧНОЙ ФИГУРЫ (углы 1-4) ---
+            if (handle >= 1 && handle <= 4) {
+                m_dragStartSnapshots.clear();
+                m_dragStartSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation() });
+                m_dragStartBounds.clear();
+                m_dragStartBounds.push_back(shape->getBounds());
+                m_dragStartAnchors.clear();
+                m_dragStartAnchors.push_back(shape->getPosition() + shape->getAnchorOffset());
+                m_dragStartGroupBounds = shape->getBounds(); // Для одиночной фигуры группа = ее собственная рамка
+            }
             return;
+        }
+
+        // Если не попали в маркер, проверяем клик по контуру (стороне)
+        int sideIndex = shape->getHitSideIndex(mousePos);
+        if (sideIndex != -1) {
+            shape->setSelectedSide(sideIndex);
+            shape->setSelectedVertex(-1); // <-- Добавь сброс вершины при выборе стороны
+            return;
+        }
+
+        // Кликнули просто в тело фигуры
+        if (shape->contains(mousePos)) {
+            shape->setSelectedSide(-1);
+            shape->setSelectedVertex(-1); // <-- Добавь сброс
         }
     }
 
@@ -245,6 +421,25 @@ void Scene::handleMouseRelease(bool isShiftPressed) {
 }
 void Scene::handleMouseMove(sf::Vector2f mousePos) {
     if (m_isDrawingMode) {
+        // Проверяем глобально, зажат ли Shift
+        bool isShift = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
+            sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift);
+
+        if (isShift && !m_drawingPoints.empty()) {
+            sf::Vector2f lastPt = m_drawingPoints.back();
+            sf::Vector2f diff = mousePos - lastPt;
+
+            float angle = std::atan2(diff.y, diff.x);
+            float len = std::sqrt(diff.x * diff.x + diff.y * diff.y);
+
+            // Округляем до ближайшего угла, кратного 15 градусам (в радианах)
+            const float snapRad = 15.0f * 3.14159265f / 180.0f;
+            angle = std::round(angle / snapRad) * snapRad;
+
+            // Пересчитываем позицию мыши с учетом нового угла и старой длины
+            mousePos = lastPt + sf::Vector2f(std::cos(angle) * len, std::sin(angle) * len);
+        }
+
         m_currentMousePos = mousePos; // Запоминаем для линии-превью
         return;
     }
@@ -252,18 +447,21 @@ void Scene::handleMouseMove(sf::Vector2f mousePos) {
         m_lastMousePos = mousePos; // Растягиваем рамку
         return;
     }
-
+    
     if (!m_isDragging || m_selectedShapes.empty()) return;
     sf::Vector2f delta = mousePos - m_lastMousePos;
     if (m_draggedHandle == 6) {
-        // --- ТЯНЕМ ОРАНЖЕВЫЙ ЯКОРЬ ГРУППЫ ---
         ShapeGroup* formalGroup = getFormalSelectedGroup();
         if (formalGroup) formalGroup->anchorPoint += delta;
     }
+    else if (m_draggedHandle == 7) {
+        // --- ВРАЩЕНИЕ МЫШЬЮ ЗА ЗЕЛЕНЫЙ КРУГ ---
+        m_selectedShapes[0]->setRotationFromMouse(mousePos);
+    }
     else if (m_draggedHandle == 5) {
-        // --- ТЯНЕМ ЯКОРЬ ОДНОЙ ФИГУРЫ ---
-        sf::Vector2f oldAnchor = m_selectedShapes[0]->getAnchorOffset();
-        m_selectedShapes[0]->setAnchorOffset(oldAnchor + delta);
+        // --- ТЯНЕМ ЯКОРЬ БЕЗ ИСКАЖЕНИЙ ---
+        sf::Vector2f currentWorldAnchor = m_selectedShapes[0]->getPosition() + m_selectedShapes[0]->getAnchorOffset();
+        m_selectedShapes[0]->setAnchorPositionWorld(currentWorldAnchor + delta);
     }
     else if (m_draggedHandle == 0) {
         // --- ДВИГАЕМ ФИГУРЫ ---
@@ -276,24 +474,104 @@ void Scene::handleMouseMove(sf::Vector2f mousePos) {
     else if (m_draggedHandle >= 100) {
         m_selectedShapes[0]->moveVertex(m_draggedHandle - 100, delta);
     }
-    else if (m_selectedShapes.size() == 1) {
-        // Логика масштабирования (m_draggedHandle от 1 до 4)
-        auto* shape = m_selectedShapes[0];
-        sf::Vector2f pos = shape->getPosition();
-        sf::Vector2f size = shape->getSize();
-        float minX = pos.x - size.x; float minY = pos.y - size.y;
-        float maxX = pos.x + size.x; float maxY = pos.y + size.y;
+    else if ((m_draggedHandle >= 1 && m_draggedHandle <= 4 && m_selectedShapes.size() == 1) ||
+        (m_draggedHandle >= 21 && m_draggedHandle <= 24 && m_selectedShapes.size() > 1)) {
 
-        if (m_draggedHandle == 1) { minX += delta.x; minY += delta.y; }
-        else if (m_draggedHandle == 2) { maxX += delta.x; minY += delta.y; }
-        else if (m_draggedHandle == 3) { maxX += delta.x; maxY += delta.y; }
-        else if (m_draggedHandle == 4) { minX += delta.x; maxY += delta.y; }
+        // 1. Определяем, какой угол тянем (TL, TR, BR, BL)
+        int cornerType = 0;
+        if (m_draggedHandle == 1 || m_draggedHandle == 21) cornerType = 1;      // Top-Left
+        else if (m_draggedHandle == 2 || m_draggedHandle == 22) cornerType = 2; // Top-Right
+        else if (m_draggedHandle == 3 || m_draggedHandle == 23) cornerType = 3; // Bottom-Right
+        else if (m_draggedHandle == 4 || m_draggedHandle == 24) cornerType = 4; // Bottom-Left
 
-        if (minX >= maxX - 10.f) { if (m_draggedHandle == 1 || m_draggedHandle == 4) minX = maxX - 10.f; else maxX = minX + 10.f; }
-        if (minY >= maxY - 10.f) { if (m_draggedHandle == 1 || m_draggedHandle == 2) minY = maxY - 10.f; else maxY = minY + 10.f; }
+        // Берем начальные размеры из идеального снимка
+        float oldW = m_dragStartGroupBounds.size.x;
+        float oldH = m_dragStartGroupBounds.size.y;
+        if (oldW < 0.1f || oldH < 0.1f) return;
 
-        shape->setSize({ (maxX - minX) / 2.0f, (maxY - minY) / 2.0f });
-        shape->setPosition({ minX + shape->getSize().x, minY + shape->getSize().y });
+        // Строго фиксируем противоположный угол по снимку
+        sf::Vector2f fixedCorner;
+        if (cornerType == 1) fixedCorner = { m_dragStartGroupBounds.position.x + oldW, m_dragStartGroupBounds.position.y + oldH };
+        else if (cornerType == 2) fixedCorner = { m_dragStartGroupBounds.position.x, m_dragStartGroupBounds.position.y + oldH };
+        else if (cornerType == 3) fixedCorner = { m_dragStartGroupBounds.position.x, m_dragStartGroupBounds.position.y };
+        else if (cornerType == 4) fixedCorner = { m_dragStartGroupBounds.position.x + oldW, m_dragStartGroupBounds.position.y };
+
+        // Рассчитываем новые границы
+        float newMinX = m_dragStartGroupBounds.position.x, newMaxX = m_dragStartGroupBounds.position.x + oldW;
+        float newMinY = m_dragStartGroupBounds.position.y, newMaxY = m_dragStartGroupBounds.position.y + oldH;
+
+        if (cornerType == 1) { newMinX = mousePos.x; newMinY = mousePos.y; }
+        else if (cornerType == 2) { newMaxX = mousePos.x; newMinY = mousePos.y; }
+        else if (cornerType == 3) { newMaxX = mousePos.x; newMaxY = mousePos.y; }
+        else if (cornerType == 4) { newMinX = mousePos.x; newMaxY = mousePos.y; }
+
+        // Защита от выворачивания рамки
+        if (newMinX > newMaxX - 10.f) { if (cornerType == 1 || cornerType == 4) newMinX = newMaxX - 10.f; else newMaxX = newMinX + 10.f; }
+        if (newMinY > newMaxY - 10.f) { if (cornerType == 1 || cornerType == 2) newMinY = newMaxY - 10.f; else newMaxY = newMinY + 10.f; }
+
+        float newW = std::clamp(newMaxX - newMinX, 10.0f, 10000.0f);
+        float newH = std::clamp(newMaxY - newMinY, 10.0f, 10000.0f);
+
+        // Абсолютный множитель масштаба
+        float Sx = newW / oldW;
+        float Sy = newH / oldH;
+
+        for (size_t i = 0; i < m_selectedShapes.size(); i++) {
+            auto* shape = m_selectedShapes[i];
+            if (i >= m_dragStartSnapshots.size()) continue;
+
+            const auto& snap = m_dragStartSnapshots[i];
+            sf::FloatRect initialB = m_dragStartBounds[i];
+            sf::Vector2f initialAnchor = m_dragStartAnchors[i];
+
+            // --- МАГИЯ: Каждый кадр откатываем фигуру к идеалу ---
+            shape->setPosition(snap.position);
+            shape->setSize(snap.size);
+            shape->setAnchorOffset(snap.anchorOffset);
+            shape->setRotation(snap.rotation);
+
+            // 1. Увеличиваем размер самой фигуры (относительно её начальных габаритов)
+            shape->resizeFromBoundingBox(initialB.size.x * Sx, initialB.size.y * Sy);
+
+            // 2. Высчитываем новую позицию якоря (расстояние умножается на масштаб)
+            sf::Vector2f dist = initialAnchor - fixedCorner;
+            sf::Vector2f targetAnchor = fixedCorner + sf::Vector2f(dist.x * Sx, dist.y * Sy);
+
+            // 3. Физически перемещаем всю фигуру на новое место
+            sf::Vector2f currentAnchor = shape->getPosition() + shape->getAnchorOffset();
+            sf::Vector2f shift = targetAnchor - currentAnchor;
+            shape->setPosition(shape->getPosition() + shift);
+        }
+
+        // --- КОРРЕКЦИЯ: Чтобы фиксированный угол не сдвинулся ни на 0.001 пиксель ---
+        float actualMinX = 99999.f, actualMinY = 99999.f, actualMaxX = -99999.f, actualMaxY = -99999.f;
+        for (auto* shape : m_selectedShapes) {
+            sf::FloatRect b = shape->getBounds();
+            if (b.position.x < actualMinX) actualMinX = b.position.x;
+            if (b.position.y < actualMinY) actualMinY = b.position.y;
+            if (b.position.x + b.size.x > actualMaxX) actualMaxX = b.position.x + b.size.x;
+            if (b.position.y + b.size.y > actualMaxY) actualMaxY = b.position.y + b.size.y;
+        }
+
+        sf::Vector2f actualFixedCorner;
+        if (cornerType == 1) actualFixedCorner = { actualMaxX, actualMaxY };
+        else if (cornerType == 2) actualFixedCorner = { actualMinX, actualMaxY };
+        else if (cornerType == 3) actualFixedCorner = { actualMinX, actualMinY };
+        else if (cornerType == 4) actualFixedCorner = { actualMaxX, actualMinY };
+
+        sf::Vector2f correction = fixedCorner - actualFixedCorner;
+        for (auto* shape : m_selectedShapes) {
+            shape->setPosition(shape->getPosition() + correction);
+        }
+
+        // Идеально сдвигаем якорь формальной группы
+        if (m_selectedShapes.size() > 1) {
+            ShapeGroup* formalGroup = getFormalSelectedGroup();
+            if (formalGroup) {
+                sf::Vector2f dist = m_dragStartFormalGroupAnchor - fixedCorner;
+                formalGroup->anchorPoint = fixedCorner + sf::Vector2f(dist.x * Sx, dist.y * Sy) + correction;
+            }
+        }
     }
     m_lastMousePos = mousePos;
 }

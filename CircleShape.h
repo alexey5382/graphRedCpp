@@ -3,7 +3,7 @@
 
 class CircleShape : public BaseShape {
 private:
-    size_t m_pointCount; // Качество круга (количество сегментов)
+    size_t m_pointCount;
 
     sf::VertexArray m_fillGeometry;
     sf::VertexArray m_strokeGeometry;
@@ -15,6 +15,8 @@ public:
     bool contains(sf::Vector2f point) const override;
     void updateGeometry() override;
     void showImGuiProperties() override;
+
+    sf::FloatRect getBounds() const override; // <-- ДОБАВЛЕНО ДЛЯ РАМКИ ПРИ ВРАЩЕНИИ
 
     void setStrokeColor(sf::Color color);
     void setStrokeThickness(float thickness);

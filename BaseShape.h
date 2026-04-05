@@ -21,10 +21,20 @@ protected:
     bool m_isClosed;
     std::string m_groupId; // ID группы, если фигура сгруппирована
     int m_selectedSide = -1; // -1 означает, что выделена вся фигура
+    int m_selectedVertex = -1; // <-- НОВОЕ: -1 означает, что ничего не выделено
 
 public:
     BaseShape(sf::Vector2f position, sf::Vector2f size, bool isClosed);
     virtual ~BaseShape() = default;
+
+    static sf::Vector2f rotatePoint(sf::Vector2f point, sf::Vector2f anchor, float angleDeg) {
+        float rad = angleDeg * 3.14159265f / 180.0f;
+        float cosA = std::cos(rad);
+        float sinA = std::sin(rad);
+        float dx = point.x - anchor.x;
+        float dy = point.y - anchor.y;
+        return sf::Vector2f(anchor.x + dx * cosA - dy * sinA, anchor.y + dx * sinA + dy * cosA);
+    }
 
     // Геттеры и сеттеры для общих свойств
     void setPosition(sf::Vector2f position);
@@ -47,6 +57,11 @@ public:
     sf::Vector2f getAnchorOffset() const override;
     void setRotation(float angle) override;
     float getRotation() const override;
+    void setAnchorPositionWorld(sf::Vector2f newWorldAnchor) override;
+    void setRotationFromMouse(sf::Vector2f mousePos) override;
+    void scaleFromHandle(int handle, sf::Vector2f mousePos) override;
+    //--
+    void resizeFromBoundingBox(float newWidth, float newHeight) override;
     //
     void setGlobalColor(sf::Color color) override;
     void setGlobalThickness(float thickness) override;
@@ -55,6 +70,9 @@ public:
     void setSelectedSide(int index) override { m_selectedSide = index; }
     int getSelectedSide() const override { return m_selectedSide; }
     void moveVertex(int index, sf::Vector2f delta) override {} // По умолчанию ничего не делает
+    //
+    void setSelectedVertex(int index) override { m_selectedVertex = index; }
+    int getSelectedVertex() const override { return m_selectedVertex; }
     //в файл
     void save(std::ostream& out) const override;
     void load(std::istream& in) override;
