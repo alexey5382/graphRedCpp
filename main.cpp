@@ -9,17 +9,16 @@
 
 int main() {
     // Создаем окно (синтаксис SFML 3.0)
-    sf::RenderWindow window(sf::VideoMode({ 1200, 800 }), "Graphic Editor (C++ / SFML)");
+    // Получаем разрешение рабочего стола
+    sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
+    // Создаем окно на весь экран
+    sf::RenderWindow window(desktop, "Graphic Editor (C++ / SFML)", sf::Style::Default, sf::State::Fullscreen);
     window.setFramerateLimit(60);
 
     // Инициализация интерфейса
     if (!ImGui::SFML::Init(window)) return -1;
-    // --- ДОБАВЛЯЕМ ПОДДЕРЖКУ РУССКОГО ЯЗЫКА ---
     ImGuiIO& io = ImGui::GetIO();
-    // Загружаем шрифт Arial из папки Windows. Размер 18 пикселей. Подключаем кириллицу.
-    io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/arial.ttf", 12.f, NULL, io.Fonts->GetGlyphRangesCyrillic());
-    // Обязательно обновляем текстуру шрифта, чтобы SFML его увидел!
-    ImGui::SFML::UpdateFontTexture();
+    
     // -----------------------------------------
     // Создаем нашу сцену (замена MainCanvas)
     Scene scene;
@@ -104,7 +103,17 @@ int main() {
         // ==========================================
          // UI: ПАНЕЛЬ ИНСТРУМЕНТОВ
          // ==========================================
-        ImGui::Begin("Tools");
+
+        ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always, ImVec2(0.0f, 0.0f));
+
+        // Начальный размер (ты сможешь тянуть её в ширину и высоту за правый нижний угол)
+        ImGui::SetNextWindowSize(ImVec2(300.0f, 400.0f), ImGuiCond_FirstUseEver);
+
+        // Блокируем перемещение и сворачивание, НО оставляем возможность менять размер
+        ImGuiWindowFlags leftFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse;
+        ImGui::Begin("Tools", nullptr, leftFlags); // <-- Убедись, что передаешь флаги!
+
+        //ImGui::Begin("Tools");
         // --- НОВЫЙ БЛОК: СОХРАНЕНИЕ И УДАЛЕНИЕ ---
         ImGui::Text("File & Edit:");
         if (ImGui::Button("Save Scene", ImVec2(-1, 0))) {
@@ -114,11 +123,15 @@ int main() {
             scene.loadFromFile("scene_save.txt");
         }
 
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f)); // Красная кнопка
+        //ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f)); // Красная кнопка
         if (ImGui::Button("Delete Selected (Del)", ImVec2(-1, 0))) {
             scene.deleteSelected();
         }
-        ImGui::PopStyleColor();
+        //ImGui::PopStyleColor();
+
+        if (ImGui::Button("Clear Canvas", ImVec2(-1, 0))) {
+            scene.clear();
+        }
         ImGui::Separator();
         // ------------------------------------------
         ImGui::Text("Create Shapes:");
@@ -154,17 +167,42 @@ int main() {
         if (ImGui::Button("Draw Polyline/Polygon", ImVec2(-1, 0))) {
             scene.startDrawingMode();
         }
-        ImGui::Separator();
+        
 
-        if (ImGui::Button("Clear Canvas", ImVec2(-1, 0))) {
-            scene.clear();
+        // --- НОВАЯ КНОПКА ВЫХОДА ---
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f)); // Красный цвет
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.3f, 0.3f, 1.0f)); // Светло-красный при наведении
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.1f, 0.1f, 1.0f)); // Темно-красный при нажатии
+        if (ImGui::Button("Exit", ImVec2(-1, 0))) {
+            window.close(); // Закрываем окно SFML, что прервет главный цикл
         }
+        ImGui::PopStyleColor(3); // Обязательно возвращаем цвета обратно!
+
+        ImGui::Separator();
         ImGui::End();
 
         // ==========================================
         // UI: ИНСПЕКТОР СВОЙСТВ И ГРУПП
         // ==========================================
-        ImGui::Begin("Properties Inspector");
+
+        sf::Vector2u winSize = window.getSize();
+
+        // Примагничиваем правый верхний угол панели (точка опоры 1.0, 0.0) к правому краю экрана
+        ImGui::SetNextWindowPos(ImVec2((float)winSize.x, 0.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+
+        // СТРОГО фиксируем высоту (всегда равна экрану), а ширину разрешаем менять от 250 до 800
+        ImGui::SetNextWindowSizeConstraints(ImVec2(250.0f, (float)winSize.y), ImVec2(800.0f, (float)winSize.y));
+
+        // Начальная ширина панели при самом первом запуске
+        ImGui::SetNextWindowSize(ImVec2(350.0f, (float)winSize.y), ImGuiCond_FirstUseEver);
+
+        ImGuiWindowFlags rightFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse;
+        
+
+        ImGui::Begin("Properties", nullptr, rightFlags);
+
+
+        //ImGui::Begin("Properties Inspector");
 
         // 1. ПАНЕЛЬ ГРУПП (Как в твоем C# коде)
         if (!scene.getGroups().empty()) {
@@ -220,11 +258,18 @@ int main() {
 
             // --- ПРАВИЛЬНОЕ ЦЕНТРИРОВАНИЕ ЯКОРЯ ---
             if (ImGui::Button("Center Anchor", ImVec2(-1, 0))) {
-                sf::FloatRect bounds = selected[0]->getBounds();
+
+                /*sf::FloatRect bounds = selected[0]->getBounds();
                 // Находим центр виртуальной рамки
                 sf::Vector2f center(bounds.position.x + bounds.size.x / 2.0f, bounds.position.y + bounds.size.y / 2.0f);
                 // Якорь - это смещение относительно m_position
-                selected[0]->setAnchorOffset(center - selected[0]->getPosition());
+                selected[0]->setAnchorOffset(center - selected[0]->getPosition());*/
+
+                // Центрирование якоря по визуальной рамке (AABB)
+                sf::FloatRect bounds = selected[0]->getBounds();
+                sf::Vector2f center(bounds.position.x + bounds.size.x / 2.0f,
+                    bounds.position.y + bounds.size.y / 2.0f);
+                selected[0]->setAnchorPositionWorld(center);
             }
         }
         else if (selected.size() > 1) {

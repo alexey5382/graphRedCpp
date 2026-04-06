@@ -27,14 +27,7 @@ public:
     BaseShape(sf::Vector2f position, sf::Vector2f size, bool isClosed);
     virtual ~BaseShape() = default;
 
-    static sf::Vector2f rotatePoint(sf::Vector2f point, sf::Vector2f anchor, float angleDeg) {
-        float rad = angleDeg * 3.14159265f / 180.0f;
-        float cosA = std::cos(rad);
-        float sinA = std::sin(rad);
-        float dx = point.x - anchor.x;
-        float dy = point.y - anchor.y;
-        return sf::Vector2f(anchor.x + dx * cosA - dy * sinA, anchor.y + dx * sinA + dy * cosA);
-    }
+    static sf::Vector2f rotatePoint(sf::Vector2f point, sf::Vector2f anchor, float angleDeg);
 
     // Геттеры и сеттеры для общих свойств
     void setPosition(sf::Vector2f position);

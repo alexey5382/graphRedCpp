@@ -18,7 +18,6 @@ void Scene::initCursors() {
 
 void Scene::updateCursor(sf::RenderWindow& window, sf::Vector2f mousePos) {
     if (!m_cursorsLoaded) return;
-
     if (m_isDrawingMode) {
         if (m_cursorCross) window.setMouseCursor(*m_cursorCross);
         return;
@@ -28,12 +27,15 @@ void Scene::updateCursor(sf::RenderWindow& window, sf::Vector2f mousePos) {
     bool hoverSide = false;
     bool hoverShape = false;
 
+    ShapeGroup* formalGroup = getFormalSelectedGroup();
+    bool hideIndividualHandles = (m_selectedShapes.size() > 1 || formalGroup != nullptr);
+
     if (m_isDragging) {
         activeHandle = m_draggedHandle;
     }
     else {
-        // --- НОВОЕ: Ищем наведение на углы группы ---
-        if (m_selectedShapes.size() > 1) {
+        // --- Ищем наведение на углы группы ---
+        if (hideIndividualHandles) {
             float minX = 99999.f, minY = 99999.f, maxX = -99999.f, maxY = -99999.f;
             for (auto* shape : m_selectedShapes) {
                 sf::FloatRect b = shape->getBounds();
@@ -49,23 +51,23 @@ void Scene::updateCursor(sf::RenderWindow& window, sf::Vector2f mousePos) {
             else if (mousePos.x >= minX - hw && mousePos.x <= minX + hw && mousePos.y >= maxY - hw && mousePos.y <= maxY + hw) activeHandle = 24;
         }
 
-        // Если не попали в группу, ищем маркеры фигур (старый код)
-        if (activeHandle == 0) {
+        // --- Ищем индивидуальные маркеры (ТОЛЬКО если они видимы) ---
+        if (activeHandle == 0 && !hideIndividualHandles) {
             for (auto* shape : m_selectedShapes) {
                 activeHandle = shape->getHitHandle(mousePos);
                 if (activeHandle != 0) break;
                 if (shape->getHitSideIndex(mousePos) != -1) { hoverSide = true; break; }
             }
-            if (activeHandle == 0 && !hoverSide) {
-                for (auto* shape : m_selectedShapes) {
-                    if (shape->contains(mousePos)) { hoverShape = true; break; }
-                }
+        }
+
+        // Если ни во что не попали, проверяем просто наведение на тело фигуры
+        if (activeHandle == 0 && !hoverSide) {
+            for (auto* shape : m_selectedShapes) {
+                if (shape->contains(mousePos)) { hoverShape = true; break; }
             }
         }
     }
 
-    // Разыменовываем optional через * перед передачей в окно
-    // Разыменовываем optional
     if (activeHandle == 1 || activeHandle == 3 || activeHandle == 21 || activeHandle == 23) {
         if (m_cursorSizeTLBR) window.setMouseCursor(*m_cursorSizeTLBR);
     }
@@ -82,7 +84,6 @@ void Scene::updateCursor(sf::RenderWindow& window, sf::Vector2f mousePos) {
         if (m_cursorArrow) window.setMouseCursor(*m_cursorArrow);
     }
 }
-
 // Новый метод для сброса курсора при входе в ImGui
 void Scene::resetCursor(sf::RenderWindow& window) {
     if (m_cursorArrow) window.setMouseCursor(*m_cursorArrow);
@@ -91,11 +92,37 @@ void Scene::resetCursor(sf::RenderWindow& window) {
 void Scene::addShape(std::unique_ptr<IShape> shape) { m_shapes.push_back(std::move(shape)); }
 
 void Scene::draw(sf::RenderTarget& target) const {
+    // 1. Сначала рисуем сами фигуры
     for (const auto& shape : m_shapes) shape->draw(target);
-    for (const auto& shape : m_shapes) shape->drawSelection(target);
 
-    // --- ГЛОБАЛЬНАЯ РАМКА И ОРАНЖЕВЫЙ ЯКОРЬ ---
-    if (m_selectedShapes.size() > 1) {
+    // 2. Проверяем, выделена ли целая формальная группа
+    bool isFormalGroup = false;
+    std::string firstId = "";
+    if (!m_selectedShapes.empty()) {
+        firstId = m_selectedShapes[0]->getGroupId();
+        isFormalGroup = !firstId.empty();
+        if (isFormalGroup) {
+            for (auto* s : m_selectedShapes) {
+                if (s->getGroupId() != firstId) { isFormalGroup = false; break; }
+            }
+            if (isFormalGroup) {
+                size_t count = 0;
+                for (const auto& s : m_shapes) { if (s->getGroupId() == firstId) count++; }
+                if (count != m_selectedShapes.size()) isFormalGroup = false;
+            }
+        }
+    }
+
+    // Если выделено несколько фигур ИЛИ выделена целая группа — прячем индивидуальные элементы
+    bool showIndividualHandles = !(m_selectedShapes.size() > 1 || isFormalGroup);
+
+    // 3. Рисуем индивидуальные элементы (если разрешено)
+    if (showIndividualHandles) {
+        for (auto* shape : m_selectedShapes) shape->drawSelection(target);
+    }
+
+    // 4. --- ГЛОБАЛЬНАЯ РАМКА И ОРАНЖЕВЫЙ ЯКОРЬ ---
+    if (m_selectedShapes.size() > 1 || isFormalGroup) {
         float minX = 99999.f, minY = 99999.f, maxX = -99999.f, maxY = -99999.f;
         for (auto* shape : m_selectedShapes) {
             sf::FloatRect bounds = shape->getBounds();
@@ -105,6 +132,7 @@ void Scene::draw(sf::RenderTarget& target) const {
             if (bounds.position.y + bounds.size.y > maxY) maxY = bounds.position.y + bounds.size.y;
         }
 
+        // Рисуем рамку группы
         sf::RectangleShape globalBox({ maxX - minX, maxY - minY });
         globalBox.setPosition({ minX, minY });
         globalBox.setFillColor(sf::Color::Transparent);
@@ -122,22 +150,6 @@ void Scene::draw(sf::RenderTarget& target) const {
         handle.setPosition({ maxX - hw, minY - hw }); target.draw(handle); // TR
         handle.setPosition({ maxX - hw, maxY - hw }); target.draw(handle); // BR
         handle.setPosition({ minX - hw, maxY - hw }); target.draw(handle); // BL
-        
-
-        
-        // Ищем, является ли это полноценной группой
-        std::string firstId = m_selectedShapes[0]->getGroupId();
-        bool isFormalGroup = !firstId.empty();
-        for (auto* s : m_selectedShapes) {
-            if (s->getGroupId() != firstId) { isFormalGroup = false; break; }
-        }
-
-        // --- ИСПРАВЛЕНИЕ: Дополнительно проверяем, что выделена ВСЯ группа ---
-        if (isFormalGroup) {
-            size_t count = 0;
-            for (const auto& s : m_shapes) { if (s->getGroupId() == firstId) count++; }
-            if (count != m_selectedShapes.size()) isFormalGroup = false;
-        }
 
         // Рисуем оранжевый якорь ТОЛЬКО если выделена вся группа
         if (isFormalGroup) {
@@ -156,7 +168,7 @@ void Scene::draw(sf::RenderTarget& target) const {
         }
     }
 
-    // Рамка выделения (Drag Selection)
+    // 5. Рамка выделения (Drag Selection)
     if (m_isBoxSelecting) {
         float minX = std::min(m_selectionStartPos.x, m_lastMousePos.x);
         float maxX = std::max(m_selectionStartPos.x, m_lastMousePos.x);
@@ -170,17 +182,16 @@ void Scene::draw(sf::RenderTarget& target) const {
         box.setOutlineThickness(1.0f);
         target.draw(box);
     }
+
+    // 6. Режим рисования
     if (m_isDrawingMode && !m_drawingPoints.empty()) {
-        // Рисуем уже поставленные отрезки
         sf::VertexArray lines(sf::PrimitiveType::LineStrip, m_drawingPoints.size() + 1);
         for (size_t i = 0; i < m_drawingPoints.size(); i++) {
             lines[i].position = m_drawingPoints[i];
             lines[i].color = sf::Color::White;
         }
-        // Линия тянется к курсору
         lines[m_drawingPoints.size()].position = m_currentMousePos;
-        lines[m_drawingPoints.size()].color = sf::Color(255, 255, 255, 150); // Полупрозрачная
-
+        lines[m_drawingPoints.size()].color = sf::Color(255, 255, 255, 150);
         target.draw(lines);
     }
 }
@@ -211,8 +222,10 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
         return;
     }
 
+    bool hideIndividualHandles = (m_selectedShapes.size() > 1 || formalGroup != nullptr);
+
     // --- 1. Проверяем маркеры масштабирования ГРУППЫ ---
-    if (m_selectedShapes.size() > 1) {
+    if (hideIndividualHandles) {
         float minX = 99999.f, minY = 99999.f, maxX = -99999.f, maxY = -99999.f;
         for (auto* shape : m_selectedShapes) {
             sf::FloatRect bounds = shape->getBounds();
@@ -244,17 +257,14 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
                 m_dragStartBounds.push_back(shape->getBounds());
                 m_dragStartAnchors.push_back(shape->getPosition() + shape->getAnchorOffset());
             }
-            ShapeGroup* fg = getFormalSelectedGroup();
-            if (fg) m_dragStartFormalGroupAnchor = fg->anchorPoint;
+            if (formalGroup) m_dragStartFormalGroupAnchor = formalGroup->anchorPoint;
 
-            // --- НОВОЕ: Компенсация клика для ГРУППЫ ---
             sf::Vector2f perfectCorner;
             if (hitHandle == 21) perfectCorner = { minX, minY };
             else if (hitHandle == 22) perfectCorner = { maxX, minY };
             else if (hitHandle == 23) perfectCorner = { maxX, maxY };
             else if (hitHandle == 24) perfectCorner = { minX, maxY };
             m_scaleMouseOffset = mousePos - perfectCorner;
-
             return;
         }
     }
@@ -271,53 +281,48 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
         }
     }
 
-    // --- 3. Проверяем маркеры выделенных фигур (1-7, 100+) ---
-    for (auto* shape : m_selectedShapes) {
-        int handle = shape->getHitHandle(mousePos);
-        if (handle != 0) {
-            m_draggedHandle = handle;
-            if (handle >= 100) { shape->setSelectedVertex(handle - 100); shape->setSelectedSide(-1); }
-            else { shape->setSelectedVertex(-1); }
+    // --- 3. Проверяем маркеры выделенных фигур (ТОЛЬКО ЕСЛИ ГРУППА НЕ ВЫДЕЛЕНА) ---
+    if (!hideIndividualHandles) {
+        for (auto* shape : m_selectedShapes) {
+            int handle = shape->getHitHandle(mousePos);
+            if (handle != 0) {
+                m_draggedHandle = handle;
+                if (handle >= 100) { shape->setSelectedVertex(handle - 100); shape->setSelectedSide(-1); }
+                else { shape->setSelectedVertex(-1); }
 
-            m_isDragging = true;
-            m_lastMousePos = mousePos;
+                m_isDragging = true;
+                m_lastMousePos = mousePos;
 
-            if (handle >= 1 && handle <= 4) {
-                // ИСПОЛЬЗУЕМ РЕАЛЬНУЮ РАМКУ, БЕЗ СБРОСА УГЛА!
-                sf::FloatRect bounds = shape->getBounds();
+                if (handle >= 1 && handle <= 4) {
+                    sf::FloatRect bounds = shape->getBounds();
 
-                m_dragStartSnapshots.clear();
-                m_dragStartSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation(), shape->getBasePoints() });
+                    m_dragStartSnapshots.clear();
+                    m_dragStartSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation(), shape->getBasePoints() });
+                    m_dragStartBounds.clear();
+                    m_dragStartBounds.push_back(bounds);
+                    m_dragStartAnchors.clear();
+                    m_dragStartAnchors.push_back(shape->getPosition() + shape->getAnchorOffset());
+                    m_dragStartGroupBounds = bounds;
 
-                m_dragStartBounds.clear();
-                m_dragStartBounds.push_back(bounds);
+                    sf::Vector2f perfectCorner;
+                    if (handle == 1) perfectCorner = { bounds.position.x, bounds.position.y };
+                    else if (handle == 2) perfectCorner = { bounds.position.x + bounds.size.x, bounds.position.y };
+                    else if (handle == 3) perfectCorner = { bounds.position.x + bounds.size.x, bounds.position.y + bounds.size.y };
+                    else if (handle == 4) perfectCorner = { bounds.position.x, bounds.position.y + bounds.size.y };
 
-                m_dragStartAnchors.clear();
-                m_dragStartAnchors.push_back(shape->getPosition() + shape->getAnchorOffset());
-
-                m_dragStartGroupBounds = bounds;
-
-                sf::Vector2f perfectCorner;
-                if (handle == 1) perfectCorner = { bounds.position.x, bounds.position.y };
-                else if (handle == 2) perfectCorner = { bounds.position.x + bounds.size.x, bounds.position.y };
-                else if (handle == 3) perfectCorner = { bounds.position.x + bounds.size.x, bounds.position.y + bounds.size.y };
-                else if (handle == 4) perfectCorner = { bounds.position.x, bounds.position.y + bounds.size.y };
-
-                // Спасает от дергания рамки в момент клика
-                m_scaleMouseOffset = mousePos - perfectCorner;
+                    m_scaleMouseOffset = mousePos - perfectCorner;
+                }
+                else {
+                    m_scaleMouseOffset = { 0.0f, 0.0f };
+                    m_dragStartSnapshots.clear();
+                    m_dragStartSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation(), shape->getBasePoints() });
+                }
+                return;
             }
-            else {
-                m_scaleMouseOffset = { 0.0f, 0.0f };
-                m_dragStartSnapshots.clear();
-                m_dragStartSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation() });
-            }
-            return;
         }
     }
 
-    // ==============================================================================
-    // ИСПРАВЛЕНИЕ: Вынесли поиск клика по фигуре ИЗ ЦИКЛА проверки маркеров
-    // ==============================================================================
+    // --- 4. КЛИК ПО ТЕЛУ ФИГУРЫ ---
     IShape* clickedShape = nullptr;
     for (auto it = m_shapes.rbegin(); it != m_shapes.rend(); ++it) {
         if ((*it)->contains(mousePos)) { clickedShape = it->get(); break; }
@@ -325,11 +330,11 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
 
     if (clickedShape) {
         std::string gId = clickedShape->getGroupId();
-
         bool sideClickHandled = false;
         auto it = std::find(m_selectedShapes.begin(), m_selectedShapes.end(), clickedShape);
 
-        if (it != m_selectedShapes.end() && !isCtrlPressed && !isShiftPressed && m_selectedShapes.size() == 1) {
+        // Проверка клика по стороне (только если выделена ровно одна фигура без модификаторов)
+        if (it != m_selectedShapes.end() && !isCtrlPressed && !isShiftPressed && m_selectedShapes.size() == 1 && gId.empty()) {
             int hitSide = clickedShape->getHitSideIndex(mousePos);
             clickedShape->setSelectedSide(hitSide);
             sideClickHandled = true;
@@ -339,17 +344,24 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
             for (auto* s : m_selectedShapes) s->setSelectedSide(-1);
         }
 
-        if (!gId.empty() && isCtrlPressed) {
+        // ========================================================
+        // НОВАЯ ПРОФЕССИОНАЛЬНАЯ ЛОГИКА ВЫДЕЛЕНИЯ
+        // ========================================================
+        if (!gId.empty() && !isCtrlPressed) {
+            // КЛИК ПО ФИГУРЕ В ГРУППЕ (БЕЗ CTRL) -> Выделяем всю группу целиком
             bool isGroupFullySelected = true;
             std::vector<IShape*> groupShapes;
             for (auto& s : m_shapes) {
                 if (s->getGroupId() == gId) {
                     groupShapes.push_back(s.get());
-                    if (std::find(m_selectedShapes.begin(), m_selectedShapes.end(), s.get()) == m_selectedShapes.end()) isGroupFullySelected = false;
+                    if (std::find(m_selectedShapes.begin(), m_selectedShapes.end(), s.get()) == m_selectedShapes.end()) {
+                        isGroupFullySelected = false;
+                    }
                 }
             }
 
             if (isShiftPressed) {
+                // Shift: добавляем или убираем группу из текущего выделения
                 if (isGroupFullySelected) {
                     for (auto* s : groupShapes) {
                         s->setSelected(false);
@@ -365,14 +377,22 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
                 }
             }
             else {
-                clearSelection();
-                selectGroup(gId);
+                // Обычный клик: выделяем только эту группу
+                if (!isGroupFullySelected || m_selectedShapes.size() > groupShapes.size()) {
+                    clearSelection();
+                    selectGroup(gId);
+                }
             }
         }
         else {
+            // КЛИК ПО НЕЗАВИСИМОЙ ФИГУРЕ (или фигуре в группе + CTRL) -> Выделяем индивидуально!
             if (isShiftPressed) {
-                if (it != m_selectedShapes.end()) { clickedShape->setSelected(false); m_selectedShapes.erase(it); }
-                else { clickedShape->setSelected(true); m_selectedShapes.push_back(clickedShape); }
+                if (it != m_selectedShapes.end()) {
+                    clickedShape->setSelected(false); m_selectedShapes.erase(it);
+                }
+                else {
+                    clickedShape->setSelected(true); m_selectedShapes.push_back(clickedShape);
+                }
             }
             else {
                 if (it == m_selectedShapes.end() || m_selectedShapes.size() > 1) {
@@ -382,6 +402,7 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
                 }
             }
         }
+
         m_isDragging = true;
         m_draggedHandle = 0;
         m_lastMousePos = mousePos;
@@ -709,7 +730,8 @@ void Scene::groupSelected() {
     for (auto* shape : m_selectedShapes) shape->setGroupId(newId);
 
     cleanupEmptyGroups(); // Удаляем старые слившиеся группы
-}void Scene::selectGroup(const std::string& groupId) {
+}
+void Scene::selectGroup(const std::string& groupId) {
     for (auto& shapePtr : m_shapes) {
         if (shapePtr->getGroupId() == groupId) {
             if (std::find(m_selectedShapes.begin(), m_selectedShapes.end(), shapePtr.get()) == m_selectedShapes.end()) {

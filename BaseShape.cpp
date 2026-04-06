@@ -212,22 +212,27 @@ void BaseShape::load(std::istream& in) {
     }
 }
 void BaseShape::setAnchorPositionWorld(sf::Vector2f newWorldAnchor) {
-    if (m_rotation == 0.0f) {
-        m_anchorOffset = newWorldAnchor - m_position;
-    }
-    else {
-        sf::Vector2f oldWorldAnchor = m_position + m_anchorOffset;
+    sf::Vector2f oldWorldAnchor = m_position + m_anchorOffset;
 
-        // 1. Узнаем, где визуально (в мире) сейчас находится m_position
-        sf::Vector2f currentVisualPos = rotatePoint(m_position, oldWorldAnchor, m_rotation);
+    // Если якорь не изменился, ничего не делаем
+    if (std::abs(newWorldAnchor.x - oldWorldAnchor.x) < 0.0001f &&
+        std::abs(newWorldAnchor.y - oldWorldAnchor.y) < 0.0001f) return;
 
-        // 2. Рассчитываем, где должна быть базовая точка, чтобы при вращении
-        // вокруг НОВОГО якоря она оказалась на том же визуальном месте
-        sf::Vector2f newPos = rotatePoint(currentVisualPos, newWorldAnchor, -m_rotation);
+    // 1. Узнаем, где сейчас физически на экране находится "базовая точка" m_position
+    // (она повернута относительно СТАРОГО якоря)
+    sf::Vector2f worldM = rotatePoint(m_position, oldWorldAnchor, m_rotation);
 
-        m_position = newPos;
-        m_anchorOffset = newWorldAnchor - m_position;
-    }
+    // 2. Вычисляем новое значение m_position напрямую.
+    // Нам нужно такое m_position, которое при повороте вокруг НОВОГО якоря 
+    // даст ту же самую мировую точку worldM.
+    // Используем обратный поворот (-m_rotation)
+    m_position = rotatePoint(worldM, newWorldAnchor, -m_rotation);
+
+    // 3. Сразу же обновляем смещение якоря относительно новой позиции m_position
+    m_anchorOffset = newWorldAnchor - m_position;
+
+    // 4. И только теперь, когда ОБА параметра (m_position и m_anchorOffset) обновлены,
+    // пересчитываем геометрию вершин.
     updateGeometry();
 }
 
@@ -427,4 +432,16 @@ void BaseShape::applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) {
     m_anchorOffset = targetAnchor - m_position;
 
     updateGeometry();
+}
+
+// Правильная реализация статического метода в .cpp файле
+sf::Vector2f BaseShape::rotatePoint(sf::Vector2f point, sf::Vector2f anchor, float angleDeg) {
+    float rad = angleDeg * 3.14159265f / 180.0f;
+    float cosA = std::cos(rad);
+    float sinA = std::sin(rad);
+    sf::Vector2f d = point - anchor;
+    return {
+        anchor.x + d.x * cosA - d.y * sinA,
+        anchor.y + d.x * sinA + d.y * cosA
+    };
 }
