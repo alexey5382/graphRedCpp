@@ -3,7 +3,64 @@
 #include "PolygonShape.h"
 #include "CircleShape.h"
 #include <fstream>
+Scene::Scene() {
+    // Начальный размер камеры (будет переопределен при старте окна)
+    m_view.setCenter({ 600.0f, 400.0f });
+    m_view.setSize({ 1200.0f, 800.0f });
+}
 
+sf::Vector2f Scene::getScreenToWorld(sf::Vector2i pixelPos, const sf::RenderTarget& target) const {
+    return target.mapPixelToCoords(pixelPos, m_view);
+}
+
+void Scene::updateViewSize(sf::Vector2f newSize) {
+    m_view.setSize(newSize * m_zoom); // Сохраняем зум при ресайзе окна
+}
+
+void Scene::handlePanStart(sf::Vector2i pixelPos) {
+    m_isPanning = true;
+    m_panStartMousePos = pixelPos;
+}
+
+void Scene::handlePanMove(sf::Vector2i pixelPos, const sf::RenderTarget& target) {
+    if (!m_isPanning) return;
+    // Находим разницу в координатах МИРА между прошлым и текущим кадром мыши
+    sf::Vector2f prevWorld = target.mapPixelToCoords(m_panStartMousePos, m_view);
+    sf::Vector2f currentWorld = target.mapPixelToCoords(pixelPos, m_view);
+
+    // Сдвигаем камеру
+    m_view.move(prevWorld - currentWorld);
+    m_panStartMousePos = pixelPos;
+}
+
+void Scene::handlePanEnd() { m_isPanning = false; }
+
+void Scene::handleZoom(float delta, sf::Vector2i pixelPos, const sf::RenderTarget& target) {
+    sf::Vector2f beforeCoords = target.mapPixelToCoords(pixelPos, m_view);
+
+    if (delta > 0) m_zoom *= 0.9f; // Приближение
+    else if (delta < 0) m_zoom *= 1.1f; // Отдаление
+
+    m_zoom = std::clamp(m_zoom, 0.05f, 10.0f); // Ограничитель
+
+    sf::Vector2f windowSize(static_cast<float>(target.getSize().x), static_cast<float>(target.getSize().y));
+    m_view.setSize(windowSize * m_zoom);
+
+    // Сдвигаем камеру так, чтобы зум происходил строго в точку под курсором
+    sf::Vector2f afterCoords = target.mapPixelToCoords(pixelPos, m_view);
+    m_view.move(beforeCoords - afterCoords);
+}
+void Scene::setZoom(float newZoom, sf::Vector2f windowSize) {
+    // Ограничиваем масштаб (от 5% до 1000%)
+    m_zoom = std::clamp(newZoom, 0.05f, 10.0f);
+    m_view.setSize(windowSize * m_zoom);
+}
+
+void Scene::resetView(sf::Vector2f windowSize) {
+    m_zoom = 1.0f;
+    m_view.setSize(windowSize);
+    m_view.setCenter(windowSize / 2.0f);
+}
 void Scene::initCursors() {
     // В SFML 3 используем createFromSystem и строгие перечисления (Type::)
     m_cursorArrow = sf::Cursor::createFromSystem(sf::Cursor::Type::Arrow);
@@ -92,37 +149,104 @@ void Scene::resetCursor(sf::RenderWindow& window) {
 void Scene::addShape(std::unique_ptr<IShape> shape) { m_shapes.push_back(std::move(shape)); }
 
 void Scene::draw(sf::RenderTarget& target) const {
-    // 1. Сначала рисуем сами фигуры
-    for (const auto& shape : m_shapes) shape->draw(target);
+    // --- ПРИМЕНЯЕМ КАМЕРУ ---
+    target.setView(m_view);
 
-    // 2. Проверяем, выделена ли целая формальная группа
-    bool isFormalGroup = false;
-    std::string firstId = "";
+    // 0. Отрисовка бесконечной сетки (сзади всех фигур)
+    if (m_showGrid) {
+        sf::Vector2f center = m_view.getCenter();
+        sf::Vector2f size = m_view.getSize();
+        float left = center.x - size.x / 2.0f;
+        float right = center.x + size.x / 2.0f;
+        float top = center.y - size.y / 2.0f;
+        float bottom = center.y + size.y / 2.0f;
+
+        // Отступы для плавного появления
+        left -= m_gridSize; right += m_gridSize;
+        top -= m_gridSize; bottom += m_gridSize;
+
+        int startX = static_cast<int>(std::floor(left / m_gridSize));
+        int endX = static_cast<int>(std::ceil(right / m_gridSize));
+        int startY = static_cast<int>(std::floor(top / m_gridSize));
+        int endY = static_cast<int>(std::ceil(bottom / m_gridSize));
+
+        std::vector<sf::Vertex> gridVertices;
+        // Вертикальные линии
+        for (int x = startX; x <= endX; ++x) {
+            float px = x * m_gridSize;
+            sf::Color color = (x == 0) ? sf::Color(255, 100, 100, 150) : sf::Color(100, 100, 100, 30); // Красная ось Y
+            gridVertices.push_back(sf::Vertex({ px, top }, color));
+            gridVertices.push_back(sf::Vertex({ px, bottom }, color));
+        }
+        // Горизонтальные линии
+        for (int y = startY; y <= endY; ++y) {
+            float py = y * m_gridSize;
+            sf::Color color = (y == 0) ? sf::Color(100, 255, 100, 150) : sf::Color(100, 100, 100, 30); // Зеленая ось X
+            gridVertices.push_back(sf::Vertex({ left, py }, color));
+            gridVertices.push_back(sf::Vertex({ right, py }, color));
+        }
+        if (!gridVertices.empty()) {
+            target.draw(gridVertices.data(), gridVertices.size(), sf::PrimitiveType::Lines);
+        }
+    }
+
+    // 1. Рисуем фигуры и выделение
+    for (const auto& shape : m_shapes) shape->draw(target);
+    // =========================================================================
+    // --- ИСПРАВЛЕННЫЙ БЛОК: Визуализация Выделения ---
+    // =========================================================================
+
+    // --- 1. Логика определения формальной группы ---
+    // Нам нужно понять, выделена ли целая формальная группа (например, Ctrl+G),
+    // или это мульти-выделение независимых фигур (или Ctrl+Клик внутрь группы).
+    bool isFormalGroupSelected = false;
+    std::string selectedGroupId = "";
+
     if (!m_selectedShapes.empty()) {
-        firstId = m_selectedShapes[0]->getGroupId();
-        isFormalGroup = !firstId.empty();
-        if (isFormalGroup) {
-            for (auto* s : m_selectedShapes) {
-                if (s->getGroupId() != firstId) { isFormalGroup = false; break; }
+        selectedGroupId = m_selectedShapes[0]->getGroupId();
+
+        if (!selectedGroupId.empty()) {
+            isFormalGroupSelected = true;
+
+            // Проверка А: Все ли выделенные фигуры принадлежат ЭТОЙ группе?
+            for (auto* shape : m_selectedShapes) {
+                if (shape->getGroupId() != selectedGroupId) {
+                    isFormalGroupSelected = false; // Нет, это мульти-выделение разных объектов
+                    break;
+                }
             }
-            if (isFormalGroup) {
-                size_t count = 0;
-                for (const auto& s : m_shapes) { if (s->getGroupId() == firstId) count++; }
-                if (count != m_selectedShapes.size()) isFormalGroup = false;
+
+            // Проверка Б: Выделили ли мы ВСЕ фигуры этой группы?
+            if (isFormalGroupSelected) {
+                size_t shapesInFormalGroup = 0;
+                for (const auto& s : m_shapes) {
+                    if (s->getGroupId() == selectedGroupId) shapesInFormalGroup++;
+                }
+
+                // Если количество выделенных не совпадает с общим кол-вом в группе,
+                // значит, мы "провалились" внутрь группы (например, Ctrl+Клик по одной фигуре).
+                if (m_selectedShapes.size() != shapesInFormalGroup) {
+                    isFormalGroupSelected = false;
+                }
             }
         }
     }
 
-    // Если выделено несколько фигур ИЛИ выделена целая группа — прячем индивидуальные элементы
-    bool showIndividualHandles = !(m_selectedShapes.size() > 1 || isFormalGroup);
-
-    // 3. Рисуем индивидуальные элементы (если разрешено)
-    if (showIndividualHandles) {
-        for (auto* shape : m_selectedShapes) shape->drawSelection(target);
+    // --- 2. Условная отрисовка индивидуальных элементов (Исправление) ---
+    // Прячем индивидуальные рамки и маркеры, если:
+    // А) Выделена формальная группа
+    // Б) Выделено больше одной фигуры (мульти-выделение через Shift)
+    bool hideIndividualHandles = (isFormalGroupSelected || m_selectedShapes.size() > 1);
+    
+    if (!hideIndividualHandles && m_selectedShapes.size() == 1) {
+        for (auto* shape : m_selectedShapes) {
+            shape->drawSelection(target);
+        }
     }
 
-    // 4. --- ГЛОБАЛЬНАЯ РАМКА И ОРАНЖЕВЫЙ ЯКОРЬ ---
-    if (m_selectedShapes.size() > 1 || isFormalGroup) {
+    // --- 3. Отрисовка глобальной рамки и оранжевого якоря ГРУППЫ ---
+    // Этот блок срабатывает и для мульти-выделения, и для формальной группы.
+    if (m_selectedShapes.size() > 1 || isFormalGroupSelected) {
         float minX = 99999.f, minY = 99999.f, maxX = -99999.f, maxY = -99999.f;
         for (auto* shape : m_selectedShapes) {
             sf::FloatRect bounds = shape->getBounds();
@@ -132,7 +256,7 @@ void Scene::draw(sf::RenderTarget& target) const {
             if (bounds.position.y + bounds.size.y > maxY) maxY = bounds.position.y + bounds.size.y;
         }
 
-        // Рисуем рамку группы
+        // Синяя глобальная рамка (Existing)
         sf::RectangleShape globalBox({ maxX - minX, maxY - minY });
         globalBox.setPosition({ minX, minY });
         globalBox.setFillColor(sf::Color::Transparent);
@@ -140,6 +264,7 @@ void Scene::draw(sf::RenderTarget& target) const {
         globalBox.setOutlineThickness(2.0f);
         target.draw(globalBox);
 
+        // Углы глобальной рамки (Existing)
         float hw = 5.0f;
         sf::RectangleShape handle(sf::Vector2f(hw * 2, hw * 2));
         handle.setFillColor(sf::Color::White);
@@ -151,24 +276,52 @@ void Scene::draw(sf::RenderTarget& target) const {
         handle.setPosition({ maxX - hw, maxY - hw }); target.draw(handle); // BR
         handle.setPosition({ minX - hw, maxY - hw }); target.draw(handle); // BL
 
-        // Рисуем оранжевый якорь ТОЛЬКО если выделена вся группа
-        if (isFormalGroup) {
-            sf::Vector2f anchorPt;
-            for (const auto& g : m_groups) {
-                if (g.id == firstId) { anchorPt = g.anchorPoint; break; }
+        // --- НОВОЕ УСЛОВИЕ ДЛЯ ЯКОРЯ ---
+        // Отрисовываем оранжевый якорь группы ТОЛЬКО если выделена ВСЯ формальная группа.
+        if (isFormalGroupSelected) {
+            // Находим точку якоря этой группы из m_groups (предполагаем наличие этой переменной)
+            // или используем временную формальную группу как в main.cpp. 
+            // Но в Scene::draw лучше брать напрямую из m_groups.
+
+            sf::Vector2f groupAnchorPt;
+            // (Логика поиска anchorPoint группы с ID selectedGroupId из m_groupsScene)
+            // assuming standard project structure:
+            /*
+            for (const auto& group : m_groupsScene) { // (Assuming Scene has vector of formal ShapeGroups)
+                if (group.id == selectedGroupId) {
+                    groupAnchorPt = group.anchorPoint;
+                    break;
+                }
+            }
+            */
+            // ПРИМЕЧАНИЕ: Чтобы этот код скомпилировался, убедись, что m_groupsScene доступна в Scene::draw
+            // или что ты используешь formalGroupHelper, созданный как в main.cpp.
+
+            // Если в Scene.cpp нет прямого доступа к m_groupsScene, 
+            // мы используем логику formalGroupHelper как в main.cpp:
+            bool groupFound = false;
+            for (auto& g : m_groups) { // <--- Предполагаю, что в Scene.h есть std::vector<ShapeGroup> m_groups
+                if (g.id == selectedGroupId) {
+                    groupAnchorPt = g.anchorPoint;
+                    groupFound = true;
+                    break;
+                }
             }
 
-            sf::CircleShape gAnchor(7.0f);
-            gAnchor.setOrigin({ 7.0f, 7.0f });
-            gAnchor.setPosition(anchorPt);
-            gAnchor.setFillColor(sf::Color(255, 165, 0)); // Оранжевый
-            gAnchor.setOutlineColor(sf::Color::White);
-            gAnchor.setOutlineThickness(2.0f);
-            target.draw(gAnchor);
+            if (groupFound) {
+                // Рисуем оранжевый якорь ГРУППЫ
+                sf::CircleShape gAnchor(7.0f);
+                gAnchor.setOrigin({ 7.0f, 7.0f });
+                gAnchor.setPosition(groupAnchorPt);
+                gAnchor.setFillColor(sf::Color(255, 165, 0)); // Оранжевый
+                gAnchor.setOutlineColor(sf::Color::White);
+                gAnchor.setOutlineThickness(2.0f);
+                target.draw(gAnchor);
+            }
         }
     }
 
-    // 5. Рамка выделения (Drag Selection)
+    // 3. Рамка выделения
     if (m_isBoxSelecting) {
         float minX = std::min(m_selectionStartPos.x, m_lastMousePos.x);
         float maxX = std::max(m_selectionStartPos.x, m_lastMousePos.x);
@@ -183,7 +336,7 @@ void Scene::draw(sf::RenderTarget& target) const {
         target.draw(box);
     }
 
-    // 6. Режим рисования
+    // 4. Режим рисования
     if (m_isDrawingMode && !m_drawingPoints.empty()) {
         sf::VertexArray lines(sf::PrimitiveType::LineStrip, m_drawingPoints.size() + 1);
         for (size_t i = 0; i < m_drawingPoints.size(); i++) {
@@ -194,6 +347,10 @@ void Scene::draw(sf::RenderTarget& target) const {
         lines[m_drawingPoints.size()].color = sf::Color(255, 255, 255, 150);
         target.draw(lines);
     }
+
+    // --- ВАЖНО: ВОЗВРАЩАЕМ ВИД ОКНА ---
+    // Это предотвратит искажение интерфейса ImGui!
+    target.setView(target.getDefaultView());
 }
 void Scene::clear() {
     m_shapes.clear();
@@ -206,7 +363,7 @@ void Scene::clearSelection() {
     m_selectedShapes.clear();
 }
 
-void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool isCtrlPressed) {
+void Scene::handleMousePress(sf::Vector2f mousePos, sf::Vector2i pixelPos, bool isShiftPressed, bool isCtrlPressed) {
     ShapeGroup* formalGroup = getFormalSelectedGroup();
     if (m_isDrawingMode) {
         if (isShiftPressed && !m_drawingPoints.empty()) {
@@ -361,7 +518,6 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
             }
 
             if (isShiftPressed) {
-                // Shift: добавляем или убираем группу из текущего выделения
                 if (isGroupFullySelected) {
                     for (auto* s : groupShapes) {
                         s->setSelected(false);
@@ -377,15 +533,15 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
                 }
             }
             else {
-                // Обычный клик: выделяем только эту группу
-                if (!isGroupFullySelected || m_selectedShapes.size() > groupShapes.size()) {
+                // ИСПРАВЛЕНО: Сбрасываем выделение только если эта группа ЕЩЕ НЕ выделена полностью
+                if (!isGroupFullySelected) {
                     clearSelection();
                     selectGroup(gId);
                 }
             }
         }
         else {
-            // КЛИК ПО НЕЗАВИСИМОЙ ФИГУРЕ (или фигуре в группе + CTRL) -> Выделяем индивидуально!
+            // КЛИК ПО НЕЗАВИСИМОЙ ФИГУРЕ (или фигуре в группе + CTRL)
             if (isShiftPressed) {
                 if (it != m_selectedShapes.end()) {
                     clickedShape->setSelected(false); m_selectedShapes.erase(it);
@@ -395,7 +551,8 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
                 }
             }
             else {
-                if (it == m_selectedShapes.end() || m_selectedShapes.size() > 1) {
+                // ИСПРАВЛЕНО: Не сбрасывать мульти-выделение, если мы кликнули по УЖЕ выделенной фигуре!
+                if (it == m_selectedShapes.end()) {
                     clearSelection();
                     clickedShape->setSelected(true);
                     m_selectedShapes.push_back(clickedShape);
@@ -408,10 +565,21 @@ void Scene::handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool is
         m_lastMousePos = mousePos;
     }
     else {
-        if (!isShiftPressed) clearSelection();
-        m_isBoxSelecting = true;
-        m_selectionStartPos = mousePos;
-        m_lastMousePos = mousePos;
+        // ==========================================
+        // КЛИК В ПУСТОЕ МЕСТО ХОЛСТА
+        // ==========================================
+        if (isShiftPressed) {
+            // Если зажат Shift - хватаем и тащим холст (Pan)!
+            // Выделение не сбрасываем, чтобы было удобно перемещаться по сцене во время работы.
+            handlePanStart(pixelPos);
+        }
+        else {
+            // Если просто ЛКМ - рисуем синюю рамку выделения
+            if (!isCtrlPressed) clearSelection();
+            m_isBoxSelecting = true;
+            m_selectionStartPos = mousePos;
+            m_lastMousePos = mousePos;
+        }
     }
 }
 
@@ -458,6 +626,12 @@ void Scene::handleMouseMove(sf::Vector2f mousePos) {
         m_currentMousePos = mousePos;
         return;
     }
+    if (m_isBoxSelecting) {
+        m_lastMousePos = mousePos; // Обновляем конец рамки
+        return; // Больше ничего не делаем, фигуры не таскаем
+    }
+
+    if (!m_isDragging) return;
 
     if (m_isDragging) {
 

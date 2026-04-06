@@ -46,8 +46,17 @@ private:
 	sf::FloatRect m_dragStartGroupBounds;
 	sf::Vector2f m_dragStartFormalGroupAnchor;
 	sf::Vector2f m_scaleMouseOffset; // <-- ДОБАВИТЬ ЭТО (Смещение мыши для прямой рамки)
+	// --- НОВОЕ: Камера и сетка ---
+	sf::View m_view;
+	float m_zoom = 1.0f;
+	bool m_isPanning = false;
+	sf::Vector2i m_panStartMousePos;
+
+	bool m_showGrid = true;
+	float m_gridSize = 50.0f;
 
 public:
+	Scene();
 	void addShape(std::unique_ptr<IShape> shape);
 	void draw(sf::RenderTarget& target) const;
 	void clear();
@@ -57,7 +66,7 @@ public:
 	std::vector<ShapeGroup>& getGroups() { return m_groups; }
 
 	// --- ОБНОВЛЕНО: Поддержка клавиши Shift ---
-	void handleMousePress(sf::Vector2f mousePos, bool isShiftPressed, bool isCtrlPressed);
+	void handleMousePress(sf::Vector2f mousePos, sf::Vector2i pixelPos, bool isShiftPressed, bool isCtrlPressed);
 	void handleMouseRelease(bool isShiftPressed);
 	void handleMouseMove(sf::Vector2f mousePos);
 
@@ -81,8 +90,20 @@ public:
 	void initCursors();
 	void updateCursor(sf::RenderWindow& window, sf::Vector2f mousePos);
 	void resetCursor(sf::RenderWindow& window); // <-- ДОБАВИТЬ ЭТО
-	
-	
+	// --- НОВОЕ: Методы камеры и сетки ---
+	sf::Vector2f getScreenToWorld(sf::Vector2i pixelPos, const sf::RenderTarget& target) const;
+	void updateViewSize(sf::Vector2f newSize);
+	void handlePanStart(sf::Vector2i pixelPos);
+	void handlePanMove(sf::Vector2i pixelPos, const sf::RenderTarget& target);
+	void handlePanEnd();
+	void handleZoom(float delta, sf::Vector2i pixelPos, const sf::RenderTarget& target);
+	void resetView(sf::Vector2f windowSize);
+
+	bool& getShowGridRef() { return m_showGrid; }
+	float& getGridSizeRef() { return m_gridSize; }
+	// Добавь эти две строки рядом с getShowGridRef()
+	float getZoom() const { return m_zoom; }
+	void setZoom(float newZoom, sf::Vector2f windowSize);
 	
 	
 };

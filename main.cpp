@@ -25,75 +25,85 @@ int main() {
     scene.initCursors(); // <-- ДОБАВИТЬ ЭТО
 
     sf::Clock deltaClock;
+    scene.resetView(sf::Vector2f(static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y)));
+
     while (window.isOpen()) {
         while (const std::optional event = window.pollEvent()) {
             ImGui::SFML::ProcessEvent(window, *event);
             // Получаем мировые координаты мыши
+            // 1. ОБНОВЛЕНИЕ КУРСОРА 
             sf::Vector2i pixelPos = sf::Mouse::getPosition(window);
-            sf::Vector2f worldPos = window.mapPixelToCoords(pixelPos);
-
-            // Передаем координаты в сцену, ТОЛЬКО если мышка не в меню ImGui
             if (!io.WantCaptureMouse) {
-                scene.handleMouseMove(worldPos);
+                sf::Vector2f worldPos = scene.getScreenToWorld(pixelPos, window);
                 scene.updateCursor(window, worldPos);
             }
             else {
-                // Если мышка ушла в ImGui, сбрасываем курсор через метод Сцены
-                scene.resetCursor(window); // <-- ИСПРАВЛЕНИЕ ЗДЕСЬ
+                scene.resetCursor(window);
             }
+
             if (event->is<sf::Event::Closed>()) {
                 window.close();
             }
-            // --- НОВОЕ: Фикс искажения пропорций (чтобы круг не был овалом) ---
-            if (const auto* resize = event->getIf<sf::Event::Resized>()) {
-                sf::FloatRect visibleArea({ 0.f, 0.f }, { static_cast<float>(resize->size.x), static_cast<float>(resize->size.y) });
-                window.setView(sf::View(visibleArea));
+            // 2. ОБРАБОТКА ИЗМЕНЕНИЯ РАЗМЕРА ОКНА
+            else if (const auto* resize = event->getIf<sf::Event::Resized>()) {
+                scene.updateViewSize(sf::Vector2f(static_cast<float>(resize->size.x), static_cast<float>(resize->size.y)));
             }
-            // --- ПРАВИЛЬНАЯ ОБРАБОТКА МЫШИ (Без блокировок от ImGui) ---
-            if (const auto* mousePress = event->getIf<sf::Event::MouseButtonPressed>()) {
-                // Игнорируем нажатие, только если курсор находится ПРЯМО НАД окном ImGui
-                if (mousePress->button == sf::Mouse::Button::Left && !ImGui::GetIO().WantCaptureMouse) {
-                    bool isShift = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
-                        sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift);
-
-                    bool isCtrl = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LControl) ||
-                        sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RControl);
-
-                    scene.handleMousePress(window.mapPixelToCoords(mousePress->position), isShift, isCtrl);
+            // 3. ЗУМ (Колесико мыши)
+            else if (const auto* scroll = event->getIf<sf::Event::MouseWheelScrolled>()) {
+                if (!io.WantCaptureMouse) {
+                    scene.handleZoom(scroll->delta, scroll->position, window);
                 }
             }
+            // 4. НАЖАТИЯ МЫШИ
+            else if (const auto* mousePress = event->getIf<sf::Event::MouseButtonPressed>()) {
+                if (!io.WantCaptureMouse) {
+                    if (mousePress->button == sf::Mouse::Button::Middle) {
+                        scene.handlePanStart(mousePress->position); // Начало панорамирования
+                    }
+                    else if (mousePress->button == sf::Mouse::Button::Left) {
+                        bool isShift = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
+                            sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift);
+                        bool isCtrl = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LControl) ||
+                            sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RControl);
+
+                        sf::Vector2f worldPos = scene.getScreenToWorld(mousePress->position, window);
+                        // ВАЖНО: Теперь передаем mousePress->position (пиксели) вторым аргументом
+                        scene.handleMousePress(worldPos, mousePress->position, isShift, isCtrl);
+                    }
+                }
+            }
+            // 5. ОТПУСКАНИЕ МЫШИ
             else if (const auto* mouseRelease = event->getIf<sf::Event::MouseButtonReleased>()) {
-                if (mouseRelease->button == sf::Mouse::Button::Left) {
+                if (mouseRelease->button == sf::Mouse::Button::Middle) {
+                    scene.handlePanEnd();
+                }
+                else if (mouseRelease->button == sf::Mouse::Button::Left) {
                     bool isShift = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
                         sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift);
 
-                    // Отпускаем мышь ВСЕГДА, чтобы рамка выделения не "залипала"
+                    scene.handlePanEnd(); // <-- ДОБАВЛЯЕМ ЭТО: останавливаем перемещение холста
                     scene.handleMouseRelease(isShift);
                 }
             }
+            // 6. ДВИЖЕНИЕ МЫШИ
             else if (const auto* mouseMove = event->getIf<sf::Event::MouseMoved>()) {
-                // Передаем координаты движения ВСЕГДА
-                scene.handleMouseMove(window.mapPixelToCoords(mouseMove->position));
-            }
+                // Передаем пиксели для перетаскивания холста
+                scene.handlePanMove(mouseMove->position, window);
 
-            // --- НОВОЕ: ОБРАБОТКА КЛАВИАТУРЫ (Вернули Ctrl+G) ---
-            else if (const auto* keyPress = event->getIf<sf::Event::KeyPressed>()) {
-                // Завершить как открытую ломаную (Enter)
-                if (keyPress->code == sf::Keyboard::Key::Enter) scene.finishDrawing(false);
-                // Завершить как замкнутую фигуру (Tab)
-                if (keyPress->code == sf::Keyboard::Key::Tab) scene.finishDrawing(true);
-                // Отмена (Escape)
-                if (keyPress->code == sf::Keyboard::Key::Escape) scene.cancelDrawing();
-                //удаление
-                if (keyPress->code == sf::Keyboard::Key::Delete && !ImGui::GetIO().WantTextInput) {
-                    scene.deleteSelected();
+                // Если не в ImGui, двигаем фигуры с учетом камеры
+                if (!io.WantCaptureMouse) {
+                    sf::Vector2f worldPos = scene.getScreenToWorld(mouseMove->position, window);
+                    scene.handleMouseMove(worldPos);
                 }
-                // Проверяем, что нажата G и зажат любой Ctrl (левый или правый)
-                if (keyPress->code == sf::Keyboard::Key::G && keyPress->control) {
-                    // Группируем ТОЛЬКО если курсор не в поле ввода текста ImGui
-                    if (!ImGui::GetIO().WantTextInput) {
-                        scene.groupSelected();
-                    }
+            }
+            // 7. КЛАВИАТУРА
+            else if (const auto* keyPress = event->getIf<sf::Event::KeyPressed>()) {
+                if (keyPress->code == sf::Keyboard::Key::Enter) scene.finishDrawing(false);
+                if (keyPress->code == sf::Keyboard::Key::Tab) scene.finishDrawing(true);
+                if (keyPress->code == sf::Keyboard::Key::Escape) scene.cancelDrawing();
+                if (keyPress->code == sf::Keyboard::Key::Delete && !io.WantTextInput) scene.deleteSelected();
+                if (keyPress->code == sf::Keyboard::Key::G && keyPress->control && !io.WantTextInput) {
+                    scene.groupSelected();
                 }
             }
             // ----------------------------------------------------
@@ -131,6 +141,28 @@ int main() {
 
         if (ImGui::Button("Clear Canvas", ImVec2(-1, 0))) {
             scene.clear();
+        }
+
+        // ==========================================
+        // ГЛОБАЛЬНЫЕ НАСТРОЙКИ ХОЛСТА (КАМЕРА И СЕТКА)
+        // ==========================================
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Canvas Properties");
+
+        // Масштаб (отображаем в процентах для удобства пользователя: 1.0 = 100%)
+        float currentZoom = scene.getZoom() * 100.0f;
+        ImGui::SetNextItemWidth(150);
+        if (ImGui::DragFloat("Zoom (%%)", &currentZoom, 1.0f, 5.0f, 1000.0f, "%.0f%%")) {
+            scene.setZoom(currentZoom / 100.0f, sf::Vector2f(static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y)));
+        }
+
+        // Настройки сетки
+        ImGui::Checkbox("Show Grid", &scene.getShowGridRef());
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(100);
+        ImGui::DragFloat("Grid Size", &scene.getGridSizeRef(), 1.0f, 10.0f, 500.0f, "%.0f px");
+
+        if (ImGui::Button("Reset Camera (0,0)", ImVec2(-1, 0))) {
+            scene.resetView(sf::Vector2f(static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y)));
         }
         ImGui::Separator();
         // ------------------------------------------
