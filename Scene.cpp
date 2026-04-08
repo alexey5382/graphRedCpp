@@ -146,7 +146,14 @@ void Scene::resetCursor(sf::RenderWindow& window) {
     if (m_cursorArrow) window.setMouseCursor(*m_cursorArrow);
 }
 
-void Scene::addShape(std::unique_ptr<IShape> shape) { m_shapes.push_back(std::move(shape)); }
+// 1. При добавлении фигуры присваиваем ей ID:
+void Scene::addShape(std::unique_ptr<IShape> shape) {
+    shape->setId(m_nextShapeId++);
+    if (shape->getName().empty()) {
+        shape->setName(shape->getType() + " " + std::to_string(shape->getId()));
+    }
+    m_shapes.push_back(std::move(shape));
+}
 
 void Scene::draw(sf::RenderTarget& target) const {
     // --- ПРИМЕНЯЕМ КАМЕРУ ---
@@ -200,12 +207,12 @@ void Scene::draw(sf::RenderTarget& target) const {
     // Нам нужно понять, выделена ли целая формальная группа (например, Ctrl+G),
     // или это мульти-выделение независимых фигур (или Ctrl+Клик внутрь группы).
     bool isFormalGroupSelected = false;
-    std::string selectedGroupId = "";
+    int selectedGroupId = 0;
 
     if (!m_selectedShapes.empty()) {
         selectedGroupId = m_selectedShapes[0]->getGroupId();
 
-        if (!selectedGroupId.empty()) {
+        if (!selectedGroupId!=0) {
             isFormalGroupSelected = true;
 
             // Проверка А: Все ли выделенные фигуры принадлежат ЭТОЙ группе?
@@ -486,12 +493,12 @@ void Scene::handleMousePress(sf::Vector2f mousePos, sf::Vector2i pixelPos, bool 
     }
 
     if (clickedShape) {
-        std::string gId = clickedShape->getGroupId();
+        int gId = clickedShape->getGroupId();
         bool sideClickHandled = false;
         auto it = std::find(m_selectedShapes.begin(), m_selectedShapes.end(), clickedShape);
 
         // Проверка клика по стороне (только если выделена ровно одна фигура без модификаторов)
-        if (it != m_selectedShapes.end() && !isCtrlPressed && !isShiftPressed && m_selectedShapes.size() == 1 && gId.empty()) {
+        if (it != m_selectedShapes.end() && !isCtrlPressed && !isShiftPressed && m_selectedShapes.size() == 1 && gId==0) {
             int hitSide = clickedShape->getHitSideIndex(mousePos);
             clickedShape->setSelectedSide(hitSide);
             sideClickHandled = true;
@@ -504,7 +511,7 @@ void Scene::handleMousePress(sf::Vector2f mousePos, sf::Vector2i pixelPos, bool 
         // ========================================================
         // НОВАЯ ПРОФЕССИОНАЛЬНАЯ ЛОГИКА ВЫДЕЛЕНИЯ
         // ========================================================
-        if (!gId.empty() && !isCtrlPressed) {
+        if (gId != 0 && !isCtrlPressed) {  // <-- ВАЖНО: строго gId != 0
             // КЛИК ПО ФИГУРЕ В ГРУППЕ (БЕЗ CTRL) -> Выделяем всю группу целиком
             bool isGroupFullySelected = true;
             std::vector<IShape*> groupShapes;
@@ -533,7 +540,6 @@ void Scene::handleMousePress(sf::Vector2f mousePos, sf::Vector2i pixelPos, bool 
                 }
             }
             else {
-                // ИСПРАВЛЕНО: Сбрасываем выделение только если эта группа ЕЩЕ НЕ выделена полностью
                 if (!isGroupFullySelected) {
                     clearSelection();
                     selectGroup(gId);
@@ -541,7 +547,7 @@ void Scene::handleMousePress(sf::Vector2f mousePos, sf::Vector2i pixelPos, bool 
             }
         }
         else {
-            // КЛИК ПО НЕЗАВИСИМОЙ ФИГУРЕ (или фигуре в группе + CTRL)
+            // КЛИК ПО НЕЗАВИСИМОЙ ФИГУРЕ (Сюда теперь будут попадать фигуры с gId == 0)
             if (isShiftPressed) {
                 if (it != m_selectedShapes.end()) {
                     clickedShape->setSelected(false); m_selectedShapes.erase(it);
@@ -551,7 +557,6 @@ void Scene::handleMousePress(sf::Vector2f mousePos, sf::Vector2i pixelPos, bool 
                 }
             }
             else {
-                // ИСПРАВЛЕНО: Не сбрасывать мульти-выделение, если мы кликнули по УЖЕ выделенной фигуре!
                 if (it == m_selectedShapes.end()) {
                     clearSelection();
                     clickedShape->setSelected(true);
@@ -855,10 +860,12 @@ void Scene::groupSelected() {
     if (m_selectedShapes.size() < 2) return;
 
     // Ищем уже существующие группы в выделении (Как в твоем C# коде)
-    std::vector<std::string> existingGroups;
+    std::vector<int> existingGroups; // СТАЛО: int вместо std::string
     for (auto* s : m_selectedShapes) {
-        std::string gid = s->getGroupId();
-        if (!gid.empty() && std::find(existingGroups.begin(), existingGroups.end(), gid) == existingGroups.end()) {
+        int gid = s->getGroupId(); // СТАЛО: int
+
+        // СТАЛО: проверка gid != 0 вместо !gid.empty()
+        if (gid != 0 && std::find(existingGroups.begin(), existingGroups.end(), gid) == existingGroups.end()) {
             existingGroups.push_back(gid);
         }
     }
@@ -870,10 +877,11 @@ void Scene::groupSelected() {
         if (shapesInGroup == m_selectedShapes.size()) return;
     }
 
-    std::string newId = "Group_" + std::to_string(std::rand());
-    std::string newName = "Group " + std::to_string(m_groups.size() + 1);
+    // СТАЛО: Генерируем уникальный числовой ID через наш счетчик
+    int newId = m_nextGroupId++;
+    std::string newName = "Group " + std::to_string(newId);
 
-    // Умное именование
+    // Умное именование (склеивает имена старых групп)
     if (existingGroups.size() == 1) {
         for (auto& g : m_groups) if (g.id == existingGroups[0]) { newName = g.name; break; }
     }
@@ -901,11 +909,16 @@ void Scene::groupSelected() {
     newGroup.anchorPoint = sf::Vector2f(minX + (maxX - minX) / 2.0f, minY + (maxY - minY) / 2.0f);
 
     m_groups.push_back(newGroup);
+
+    // Присваиваем всем выделенным фигурам новый int ID
     for (auto* shape : m_selectedShapes) shape->setGroupId(newId);
 
     cleanupEmptyGroups(); // Удаляем старые слившиеся группы
 }
-void Scene::selectGroup(const std::string& groupId) {
+void Scene::selectGroup(int groupId) {
+    // <-- ДОБАВЬ ЭТУ СТРОКУ ЗАЩИТЫ: 
+    if (groupId == 0) return;
+
     for (auto& shapePtr : m_shapes) {
         if (shapePtr->getGroupId() == groupId) {
             if (std::find(m_selectedShapes.begin(), m_selectedShapes.end(), shapePtr.get()) == m_selectedShapes.end()) {
@@ -916,12 +929,11 @@ void Scene::selectGroup(const std::string& groupId) {
     }
 }
 
-void Scene::ungroupSelected(const std::string& groupId) {
+void Scene::ungroupSelected(int groupId) {
     for (auto* shape : m_selectedShapes) {
-        if (shape->getGroupId() == groupId) shape->setGroupId("");
+        if (shape->getGroupId() == groupId) shape->setGroupId(0);
     }
-    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(),
-        [&](const ShapeGroup& g) { return g.id == groupId; }), m_groups.end());
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(), [&](const ShapeGroup& g) { return g.id == groupId; }), m_groups.end());
 }
 // РЕАЛИЗАЦИЯ Z-INDEX
 void Scene::bringToFront(IShape* shape) {
@@ -945,7 +957,7 @@ void Scene::cleanupEmptyGroups() {
         int count = 0;
         for (auto& s : m_shapes) { if (s->getGroupId() == it->id) count++; }
         if (count <= 1) {
-            for (auto& s : m_shapes) { if (s->getGroupId() == it->id) s->setGroupId(""); }
+            for (auto& s : m_shapes) { if (s->getGroupId() == it->id) s->setGroupId(0); }
             it = m_groups.erase(it);
         }
         else {
@@ -955,8 +967,8 @@ void Scene::cleanupEmptyGroups() {
 }
 ShapeGroup* Scene::getFormalSelectedGroup() {
     if (m_selectedShapes.empty()) return nullptr;
-    std::string firstId = m_selectedShapes[0]->getGroupId();
-    if (firstId.empty()) return nullptr;
+    int firstId = m_selectedShapes[0]->getGroupId(); 
+    if (firstId == 0) return nullptr;
 
     for (auto* s : m_selectedShapes) if (s->getGroupId() != firstId) return nullptr;
 
@@ -1081,6 +1093,17 @@ void Scene::loadFromFile(const std::string& filename) {
         if (shape) {
             shape->load(in); // Фигура сама считает свои параметры
             m_shapes.push_back(std::move(shape));
+        }
+    }
+}
+void Scene::selectShape(int id) {
+    for (auto& shapePtr : m_shapes) {
+        if (shapePtr->getId() == id) {
+            if (std::find(m_selectedShapes.begin(), m_selectedShapes.end(), shapePtr.get()) == m_selectedShapes.end()) {
+                shapePtr->setSelected(true);
+                m_selectedShapes.push_back(shapePtr.get());
+            }
+            break; // ID уникальны, дальше искать нет смысла
         }
     }
 }

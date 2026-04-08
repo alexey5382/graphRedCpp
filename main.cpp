@@ -20,9 +20,8 @@ int main() {
     ImGuiIO& io = ImGui::GetIO();
     
     // -----------------------------------------
-    // Создаем нашу сцену (замена MainCanvas)
     Scene scene;
-    scene.initCursors(); // <-- ДОБАВИТЬ ЭТО
+    scene.initCursors();
 
     sf::Clock deltaClock;
     scene.resetView(sf::Vector2f(static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y)));
@@ -236,48 +235,124 @@ int main() {
 
         //ImGui::Begin("Properties Inspector");
 
-        // 1. ПАНЕЛЬ ГРУПП (Как в твоем C# коде)
-        if (!scene.getGroups().empty()) {
-            ImGui::Text("GROUPS:");
-            for (auto& group : scene.getGroups()) {
-                ImGui::PushID(group.id.c_str());
+        // ==========================================
+        // 1. ИЕРАРХИЯ СЦЕНЫ (Список всех объектов)
+        // ==========================================
+        if (ImGui::CollapsingHeader("Scene Hierarchy", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::BeginChild("HierarchyList", ImVec2(0, 300), true); // Скроллируемая область
 
-                // Поле для переименования группы
-                char nameBuf[256];
-                snprintf(nameBuf, sizeof(nameBuf), "%s", group.name.c_str());
+            // --- СПИСОК ГРУПП (Раскрывающиеся деревья) ---
+            if (!scene.getGroups().empty()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "--- GROUPS ---");
 
-                ImGui::SetNextItemWidth(150);
-                if (ImGui::InputText("##Name", nameBuf, sizeof(nameBuf))) {
-                    group.name = nameBuf;
-                }
+                for (auto& group : scene.getGroups()) {
+                    ImGui::PushID(group.id + 100000); // Уникальный ID для ImGui
 
-                ImGui::SameLine();
-                if (ImGui::Button("Select")) {
-                    scene.clearSelection();
-                    scene.selectGroup(group.id);
-                }
+                    // Отрисовываем узел дерева (стрелочка для раскрытия)
+                    bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)group.id,
+                        ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth,
+                        "[Gr:%04d]", group.id);
 
-                ImGui::PopID();
-            }
-            ImGui::Separator();
-        }
+                    ImGui::SameLine();
 
-        // 2. ДИНАМИЧЕСКИЕ СВОЙСТВА ФИГУР
-        const auto& selected = scene.getSelectedShapes();
+                    // Поле переименования группы
+                    char gName[256];
+                    snprintf(gName, sizeof(gName), "%s", group.name.c_str());
+                    ImGui::SetNextItemWidth(100);
+                    if (ImGui::InputText("##gname", gName, sizeof(gName))) group.name = gName;
 
-        if (selected.size() == 1) {
-            std::string gId = selected[0]->getGroupId();
-            if (!gId.empty()) {
-                std::string gName = "Unknown";
-                for (auto& g : scene.getGroups()) if (g.id == gId) gName = g.name;
+                    ImGui::SameLine();
+                    if (ImGui::Button("Select##g")) {
+                        scene.clearSelection();
+                        scene.selectGroup(group.id);
+                    }
 
-                ImGui::TextColored(ImVec4(0.3f, 0.7f, 1.0f, 1.0f), "In Group: %s", gName.c_str());
-                if (ImGui::Button("Remove from Group", ImVec2(-1, 0))) {
-                    selected[0]->setGroupId("");
-                    scene.cleanupEmptyGroups();
+                    // --- ДОЧЕРНИЕ ФИГУРЫ (Если группа раскрыта) ---
+                    if (nodeOpen) {
+                        for (auto& shapePtr : scene.getShapes()) {
+                            auto* shape = shapePtr.get();
+                            if (shape->getGroupId() == group.id) {
+                                ImGui::PushID(shape->getId());
+
+                                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "  [ID:%04d]", shape->getId());
+                                ImGui::SameLine();
+
+                                char sName[256];
+                                snprintf(sName, sizeof(sName), "%s", shape->getName().c_str());
+                                ImGui::SetNextItemWidth(90);
+                                if (ImGui::InputText("##sname", sName, sizeof(sName))) shape->setName(sName);
+
+                                ImGui::SameLine();
+                                if (ImGui::Button("Select##s")) {
+                                    scene.clearSelection();
+                                    scene.selectShape(shape->getId());
+                                }
+
+                                ImGui::PopID();
+                            }
+                        }
+                        ImGui::TreePop(); // Закрываем узел дерева
+                    }
+                    ImGui::PopID();
                 }
                 ImGui::Separator();
             }
+
+            // --- СПИСОК НЕЗАВИСИМЫХ ФИГУР ---
+            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "--- INDEPENDENT SHAPES ---");
+            for (auto& shapePtr : scene.getShapes()) {
+                auto* shape = shapePtr.get();
+
+                // Показываем ЗДЕСЬ ТОЛЬКО те фигуры, которые НЕ состоят в группах
+                if (shape->getGroupId() == 0) {
+                    ImGui::PushID(shape->getId());
+
+                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "[ID:%04d]", shape->getId());
+                    ImGui::SameLine();
+
+                    // Поле переименования фигуры
+                    char sName[256];
+                    snprintf(sName, sizeof(sName), "%s", shape->getName().c_str());
+                    ImGui::SetNextItemWidth(100);
+                    if (ImGui::InputText("##sname", sName, sizeof(sName))) shape->setName(sName);
+
+                    ImGui::SameLine();
+                    if (ImGui::Button("Select##s")) {
+                        scene.clearSelection();
+                        scene.selectShape(shape->getId());
+                    }
+
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndChild();
+        }
+        ImGui::Separator();
+
+        // ==========================================
+        // 2. ИНФОРМАЦИЯ О ВЫДЕЛЕННОМ ОБЪЕКТЕ
+        // ==========================================
+        const auto& selected = scene.getSelectedShapes();
+
+        if (selected.size() == 1) {
+            auto* shape = selected[0];
+
+            // --- НОВАЯ ШАПКА ОДИНОЧНОЙ ФИГУРЫ ---
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Selected Shape: %s", shape->getName().c_str());
+            ImGui::TextDisabled("ID: %04d | Type: %s", shape->getId(), shape->getType().c_str());
+
+            int gId = shape->getGroupId();
+            if (gId != 0) {
+                std::string gName = "Unknown";
+                for (auto& g : scene.getGroups()) if (g.id == gId) gName = g.name;
+
+                ImGui::TextColored(ImVec4(0.3f, 0.7f, 1.0f, 1.0f), "In Group: [%04d] %s", gId, gName.c_str());
+                if (ImGui::Button("Remove from Group", ImVec2(-1, 0))) {
+                    shape->setGroupId(0);
+                    scene.cleanupEmptyGroups();
+                }
+            }
+            ImGui::Separator();
 
             // ВАЖНО: Показываем полное меню свойств фигуры в любом случае!
             selected[0]->showImGuiProperties();
@@ -305,20 +380,23 @@ int main() {
             }
         }
         else if (selected.size() > 1) {
-            // МУЛЬТИ-ВЫДЕЛЕНИЕ ИЛИ ГРУППА
-            ImGui::Text("Selected %zu shapes", selected.size());
-            ImGui::Spacing();
-
-            if (ImGui::Button("Group Selected (Ctrl+G)", ImVec2(-1, 0))) scene.groupSelected();
-
             ShapeGroup* formalGroup = scene.getFormalSelectedGroup();
 
             if (formalGroup) {
+                // --- НОВАЯ ШАПКА ГРУППЫ ---
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Selected Group: %s", formalGroup->name.c_str());
+                ImGui::TextDisabled("Group ID: %04d", formalGroup->id);
+
+                if (ImGui::CollapsingHeader("Shapes in this Group", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    for (auto* s : selected) {
+                        ImGui::BulletText("[ID:%04d] %s", s->getId(), s->getName().c_str());
+                    }
+                }
+
                 if (ImGui::Button("Ungroup", ImVec2(-1, 0))) {
                     scene.ungroupSelected(formalGroup->id);
                     scene.cleanupEmptyGroups();
                 }
-
                 ImGui::Separator();
                 ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1.0f), "Group Anchor (World):");
 

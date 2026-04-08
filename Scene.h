@@ -7,11 +7,11 @@
 #include <SFML/Window/Cursor.hpp> // <-- ДОБАВЛЕНО
 #include <optional>             // <-- ДОБАВИТЬ ЭТО ДЛЯ SFML 3
 
-// Структура группы, как в твоем C# коде
+// 1. Обновляем структуру группы
 struct ShapeGroup {
-	std::string id;
+	int id;              // <-- Изменено на int
 	std::string name;
-	sf::Vector2f anchorPoint; // Глобальный якорь группы
+	sf::Vector2f anchorPoint;
 };
 
 class Scene {
@@ -54,6 +54,9 @@ private:
 
 	bool m_showGrid = true;
 	float m_gridSize = 50.0f;
+	//--
+	int m_nextShapeId = 1; // <-- НОВЫЕ СЧЕТЧИКИ
+	int m_nextGroupId = 1;
 
 public:
 	Scene();
@@ -64,6 +67,7 @@ public:
 	// Геттеры для UI
 	const std::vector<IShape*>& getSelectedShapes() const { return m_selectedShapes; }
 	std::vector<ShapeGroup>& getGroups() { return m_groups; }
+	const std::vector<std::unique_ptr<IShape>>& getShapes() const { return m_shapes; }
 
 	// --- ОБНОВЛЕНО: Поддержка клавиши Shift ---
 	void handleMousePress(sf::Vector2f mousePos, sf::Vector2i pixelPos, bool isShiftPressed, bool isCtrlPressed);
@@ -71,8 +75,9 @@ public:
 	void handleMouseMove(sf::Vector2f mousePos);
 
 	void groupSelected();
-	void ungroupSelected(const std::string& groupId);
-	void selectGroup(const std::string& groupId);
+	void ungroupSelected(int groupId);
+	void selectGroup(int groupId);
+	void selectShape(int id); // <-- Новый метод для клика из меню!
 	void clearSelection();
 
 	void bringToFront(IShape* shape);
@@ -104,6 +109,4 @@ public:
 	// Добавь эти две строки рядом с getShowGridRef()
 	float getZoom() const { return m_zoom; }
 	void setZoom(float newZoom, sf::Vector2f windowSize);
-	
-	
 };

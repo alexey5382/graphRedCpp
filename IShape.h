@@ -33,9 +33,16 @@ public:
     virtual void drawSelection(sf::RenderTarget& target) const = 0;
     virtual int getHitHandle(sf::Vector2f mousePos) const = 0;
 
-    // --- НОВОЕ: Добавляем методы для групп в интерфейс ---
-    virtual void setGroupId(const std::string& id) = 0;
-    virtual std::string getGroupId() const = 0;
+    // --- Добавь эти методы в класс IShape ---
+    virtual void setId(int id) = 0;
+    virtual int getId() const = 0;
+    virtual void setName(const std::string& name) = 0;
+    virtual std::string getName() const = 0;
+
+    // --- ИЗМЕНИ тип аргументов с std::string на int ---
+    virtual void setGroupId(int id) = 0;
+    virtual int getGroupId() const = 0;
+
     // Добавь это в конец IShape:
     virtual sf::FloatRect getBounds() const = 0; // Для глобальной рамки
 

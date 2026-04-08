@@ -19,9 +19,11 @@ protected:
     // Состояния
     bool m_isSelected;
     bool m_isClosed;
-    std::string m_groupId; // ID группы, если фигура сгруппирована
     int m_selectedSide = -1; // -1 означает, что выделена вся фигура
     int m_selectedVertex = -1; // <-- НОВОЕ: -1 означает, что ничего не выделено
+    int m_id = 0;                 // <-- НОВОЕ
+    std::string m_name = "Shape"; // <-- НОВОЕ
+    int m_groupId = 0;            // <-- ИЗМЕНЕНО: 0 означает, что фигуры нет в группе (вместо пустой строки)
 
 public:
     BaseShape(sf::Vector2f position, sf::Vector2f size, bool isClosed);
@@ -36,8 +38,14 @@ public:
     void setSelected(bool selected);
     bool isSelected() const;
 
-    void setGroupId(const std::string& id);
-    std::string getGroupId() const;
+    // Добавь реализацию новых методов:
+    void setId(int id) override { m_id = id; }
+    int getId() const override { return m_id; }
+    void setName(const std::string& name) override { m_name = name; }
+    std::string getName() const override { return m_name; }
+
+    void setGroupId(int id) override;
+    int getGroupId() const override;
     //
     void setSize(sf::Vector2f size);
     sf::Vector2f getSize() const;

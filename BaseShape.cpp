@@ -3,7 +3,7 @@
 
 BaseShape::BaseShape(sf::Vector2f position, sf::Vector2f size, bool isClosed)
     : m_position(position), m_size(size), m_isSelected(false), m_isClosed(isClosed),
-    m_groupId(""), m_anchorOffset(0, 0), m_rotation(0.0f) {}
+    m_groupId(0), m_anchorOffset(0, 0), m_rotation(0.0f), m_id(0), m_name("") {} // <-- ИЗМЕНЕНО
 
 void BaseShape::setPosition(sf::Vector2f position) {
     m_position = position;
@@ -26,13 +26,10 @@ bool BaseShape::isSelected() const {
     return m_isSelected;
 }
 
-void BaseShape::setGroupId(const std::string& id) {
-    m_groupId = id;
-}
+// 2. Измени геттер/сеттер группы:
+void BaseShape::setGroupId(int id) { m_groupId = id; }
+int BaseShape::getGroupId() const { return m_groupId; }
 
-std::string BaseShape::getGroupId() const {
-    return m_groupId;
-}
 void BaseShape::setSize(sf::Vector2f size) {
     // Не даем фигуре "вывернуться наизнанку" (сжаться меньше 5 пикселей)
     m_size.x = std::max(5.0f, size.x);
@@ -159,12 +156,16 @@ void BaseShape::setGlobalFillColor(sf::Color color) {
     updateGeometry();
 }
 void BaseShape::save(std::ostream& out) const {
-    std::string safeGroupId = m_groupId.empty() ? "NONE" : m_groupId;
+    // Заменяем пробелы в имени на _, чтобы не сломать чтение из файла
+    std::string safeName = m_name.empty() ? "Unnamed" : m_name;
+    std::replace(safeName.begin(), safeName.end(), ' ', '_');
 
-    out << "Position: " << m_position.x << " " << m_position.y << "\n"
+    out << "ID: " << m_id << "\n"
+        << "Name: " << safeName << "\n"
+        << "Position: " << m_position.x << " " << m_position.y << "\n"
         << "Size: " << m_size.x << " " << m_size.y << "\n"
         << "IsClosed: " << m_isClosed << "\n"
-        << "GroupId: " << safeGroupId << "\n"
+        << "GroupId: " << m_groupId << "\n"
         << "AnchorOffset: " << m_anchorOffset.x << " " << m_anchorOffset.y << "\n"
         << "Rotation: " << m_rotation << "\n"
         << "FillColor: " << (int)m_fillColor.r << " " << (int)m_fillColor.g << " " << (int)m_fillColor.b << " " << (int)m_fillColor.a << "\n";
@@ -180,14 +181,13 @@ void BaseShape::save(std::ostream& out) const {
 }
 void BaseShape::load(std::istream& in) {
     std::string dummy;
-    std::string safeGroupId;
-
+    in >> dummy >> m_id;
+    in >> dummy >> m_name;
+    std::replace(m_name.begin(), m_name.end(), '_', ' '); // Возвращаем пробелы
     in >> dummy >> m_position.x >> m_position.y;
     in >> dummy >> m_size.x >> m_size.y;
     in >> dummy >> m_isClosed;
-
-    in >> dummy >> safeGroupId;
-    m_groupId = (safeGroupId == "NONE") ? "" : safeGroupId;
+    in >> dummy >> m_groupId; // Читаем как int
 
     in >> dummy >> m_anchorOffset.x >> m_anchorOffset.y;
     in >> dummy >> m_rotation;
