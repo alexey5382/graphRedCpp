@@ -1,0 +1,78 @@
+GroupsCount: 0
+
+ShapesCount: 3
+
+[Polygon]
+ID: 9
+Name: Polygon_9
+Position: 479.894 12
+Size: 187.211 351.902
+IsClosed: 1
+GroupId: 0
+AnchorOffset: 93.6056 194.526
+Rotation: 0
+FillColor: 31 37 56 103
+SideColorsCount: 5
+  203 212 93 255
+  245 150 252 255
+  19 59 69 255
+  10 137 13 255
+  174 219 28 255
+SideThicknessesCount: 5
+  24 10 8 26 12 
+PointsCount: 5
+  0.5 0
+  1 0.381966
+  0.809017 1
+  0.190983 1
+  0 0.381966
+
+[Polygon]
+ID: 11
+Name: Polygon_11
+Position: 128.894 340
+Size: 188.211 431.902
+IsClosed: 1
+GroupId: 0
+AnchorOffset: 94.1057 238.749
+Rotation: 0
+FillColor: 164 212 159 168
+SideColorsCount: 5
+  53 126 89 255
+  34 50 207 255
+  207 204 244 255
+  45 144 211 255
+  143 211 72 255
+SideThicknessesCount: 5
+  15 4 11 23 24 
+PointsCount: 5
+  0.5 0
+  1 0.381966
+  0.809017 1
+  0.190983 1
+  0 0.381966
+
+[Polygon]
+ID: 10
+Name: Polygon_10
+Position: 429.116 -273.034
+Size: 497.11 250.219
+IsClosed: 1
+GroupId: 0
+AnchorOffset: 230.093 123.52
+Rotation: 0
+FillColor: 132 190 35 141
+SideColorsCount: 5
+  214 108 225 255
+  144 82 174 255
+  241 241 73 255
+  235 233 187 255
+  219 166 179 255
+SideThicknessesCount: 5
+  6 25 18 12 15 
+PointsCount: 5
+  0.674649 0.167993
+  1 0.786027
+  0.583044 1
+  0 0.514209
+  0.0566156 0

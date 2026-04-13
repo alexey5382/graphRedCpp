@@ -1,12 +1,16 @@
 #include <SFML/Graphics.hpp>
 #include "imgui.h"
 #include "imgui-SFML.h"
+#include <cmath>
+#include <cstdlib>
+#include <ctime>
 
 // Подключаем нашу архитектуру
 #include "Scene.h"
 #include "PolygonShape.h"
 #include "CircleShape.h"
-
+#include <filesystem> // <-- ДОБАВЛЕНО ДЛЯ РАБОТЫ С ПАПКАМИ
+namespace fs = std::filesystem; // Для удобства
 int main() {
     // Создаем окно (синтаксис SFML 3.0)
     // Получаем разрешение рабочего стола
@@ -18,7 +22,27 @@ int main() {
     // Инициализация интерфейса
     if (!ImGui::SFML::Init(window)) return -1;
     ImGuiIO& io = ImGui::GetIO();
-    
+    ImGui::StyleColorsLight(); // <-- ВКЛЮЧАЕМ СВЕТЛУЮ ТЕМУ IMGUI
+    // Создаем папку для сохранений, если ее нет
+    if (!fs::exists("Saves")) {
+        fs::create_directory("Saves");
+    }
+    std::srand(static_cast<unsigned int>(std::time(nullptr)));
+    // --- Переменные для инструмента "Правильный многоугольник" ---
+    bool showRegularPolygonModal = false;
+    int rpSides = 5;
+    float rpLength = 50.0f;
+    float rpFill[4] = { 0.8f, 0.8f, 0.8f, 0.5f };
+    float rpStroke[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    bool rpRandomize = false;
+    // --- Переменные для всплывающих окон сохранения/загрузки ---
+    bool showSaveModal = false;
+    bool saveOnlySelected = false;
+    char saveFilename[128] = "my_scene";
+
+    bool showLoadModal = false;
+    int loadMode = 0; // 0 = Replace, 1 = Add
+    std::string selectedLoadFile = "";
     // -----------------------------------------
     Scene scene;
     scene.initCursors();
@@ -27,6 +51,33 @@ int main() {
     scene.resetView(sf::Vector2f(static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y)));
 
     while (window.isOpen()) {
+        // ==========================================
+        // ГОРЯЧИЕ КЛАВИШИ (Ctrl+C, Ctrl+V, Del)
+        // ==========================================
+        static bool cPressed = false;
+        static bool vPressed = false;
+        static bool delPressed = false;
+
+        bool isCtrl = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LControl) ||
+            sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RControl);
+
+        // Копирование (Ctrl + C)
+        if (isCtrl && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C)) {
+            if (!cPressed) { scene.copySelected(); cPressed = true; }
+        }
+        else { cPressed = false; }
+
+        // Вставка (Ctrl + V)
+        if (isCtrl && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V)) {
+            if (!vPressed) { scene.paste(); vPressed = true; }
+        }
+        else { vPressed = false; }
+
+        // Удаление (Delete) - Заодно добавим хоткей на удаление!
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Delete)) {
+            if (!delPressed) { scene.deleteSelected(); delPressed = true; }
+        }
+        else { delPressed = false; }
         while (const std::optional event = window.pollEvent()) {
             ImGui::SFML::ProcessEvent(window, *event);
             // Получаем мировые координаты мыши
@@ -125,22 +176,30 @@ int main() {
         //ImGui::Begin("Tools");
         // --- НОВЫЙ БЛОК: СОХРАНЕНИЕ И УДАЛЕНИЕ ---
         ImGui::Text("File & Edit:");
-        if (ImGui::Button("Save Scene", ImVec2(-1, 0))) {
-            scene.saveToFile("scene_save.txt");
+
+        // Кнопка сохранения ВСЕЙ сцены
+        if (ImGui::Button("Save Scene", ImVec2(140, 0))) {
+            showSaveModal = true;
+            saveOnlySelected = false;
         }
+        ImGui::SameLine();
+
+        // Кнопка сохранения ВЫДЕЛЕННОГО (активна только если есть выделение)
+        ImGui::BeginDisabled(scene.getSelectedShapes().empty());
+        if (ImGui::Button("Save Selected", ImVec2(140, 0))) {
+            showSaveModal = true;
+            saveOnlySelected = true;
+        }
+        ImGui::EndDisabled();
+
+        // Кнопка загрузки
         if (ImGui::Button("Load Scene", ImVec2(-1, 0))) {
-            scene.loadFromFile("scene_save.txt");
+            showLoadModal = true;
+            selectedLoadFile = "";
         }
 
-        //ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f)); // Красная кнопка
-        if (ImGui::Button("Delete Selected (Del)", ImVec2(-1, 0))) {
-            scene.deleteSelected();
-        }
-        //ImGui::PopStyleColor();
-
-        if (ImGui::Button("Clear Canvas", ImVec2(-1, 0))) {
-            scene.clear();
-        }
+        if (ImGui::Button("Delete Selected (Del)", ImVec2(-1, 0))) scene.deleteSelected();
+        if (ImGui::Button("Clear Canvas", ImVec2(-1, 0))) scene.clear();
 
         // ==========================================
         // ГЛОБАЛЬНЫЕ НАСТРОЙКИ ХОЛСТА (КАМЕРА И СЕТКА)
@@ -198,6 +257,10 @@ int main() {
         if (ImGui::Button("Draw Polyline/Polygon", ImVec2(-1, 0))) {
             scene.startDrawingMode();
         }
+        if (ImGui::Button("New Regular Polygon", ImVec2(-1, 0))) {
+            showRegularPolygonModal = true;
+            rpRandomize = false; // Сбрасываем галочку при открытии
+        }
         
 
         // --- НОВАЯ КНОПКА ВЫХОДА ---
@@ -239,7 +302,7 @@ int main() {
         // 1. ИЕРАРХИЯ СЦЕНЫ (Список всех объектов)
         // ==========================================
         if (ImGui::CollapsingHeader("Scene Hierarchy", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::BeginChild("HierarchyList", ImVec2(0, 300), true); // Скроллируемая область
+            // УБРАЛИ BeginChild, чтобы высота подстраивалась сама
 
             // --- СПИСОК ГРУПП (Раскрывающиеся деревья) ---
             if (!scene.getGroups().empty()) {
@@ -248,9 +311,10 @@ int main() {
                 for (auto& group : scene.getGroups()) {
                     ImGui::PushID(group.id + 100000); // Уникальный ID для ImGui
 
-                    // Отрисовываем узел дерева (стрелочка для раскрытия)
+                    // ИСПРАВЛЕНО: Убрали флаг ImGuiTreeNodeFlags_SpanAvailWidth, 
+                    // чтобы хитбокс дерева не перекрывал кнопки справа
                     bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)group.id,
-                        ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth,
+                        ImGuiTreeNodeFlags_OpenOnArrow,
                         "[Gr:%04d]", group.id);
 
                     ImGui::SameLine();
@@ -325,7 +389,7 @@ int main() {
                     ImGui::PopID();
                 }
             }
-            ImGui::EndChild();
+            // УБРАЛИ EndChild()
         }
         ImGui::Separator();
 
@@ -594,13 +658,149 @@ int main() {
         else {
             ImGui::TextDisabled("Select a shape to edit properties.");
         }
+        // ==========================================
+        // МОДАЛЬНЫЕ ОКНА СОХРАНЕНИЯ И ЗАГРУЗКИ
+        // ==========================================
 
+        // 1. Окно СОХРАНЕНИЯ
+        if (showSaveModal) ImGui::OpenPopup("Save File##modal");
+
+        // Центрируем окно на экране
+        ImGui::SetNextWindowPos(ImVec2(winSize.x / 2.0f, winSize.y / 2.0f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("Save File##modal", &showSaveModal, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text(saveOnlySelected ? "Saving SELECTED shapes..." : "Saving ENTIRE scene...");
+            ImGui::Separator();
+
+            ImGui::InputText("Filename", saveFilename, IM_ARRAYSIZE(saveFilename));
+            ImGui::TextDisabled("File will be saved to 'Saves/' folder as .json");
+            ImGui::Spacing();
+
+            if (ImGui::Button("Save", ImVec2(120, 0))) {
+                std::string fullPath = "Saves/" + std::string(saveFilename) + ".json";
+                if (saveOnlySelected) scene.saveSelectedToFile(fullPath);
+                else scene.saveToFile(fullPath);
+                showSaveModal = false;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) showSaveModal = false;
+
+            ImGui::EndPopup();
+        }
+
+        // 2. Окно ЗАГРУЗКИ
+        if (showLoadModal) ImGui::OpenPopup("Load File##modal");
+
+        ImGui::SetNextWindowPos(ImVec2(winSize.x / 2.0f, winSize.y / 2.0f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("Load File##modal", &showLoadModal, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+            ImGui::RadioButton("Replace current scene", &loadMode, 0); ImGui::SameLine();
+            ImGui::RadioButton("Add to current scene", &loadMode, 1);
+            ImGui::Separator();
+
+            ImGui::Text("Saved Files:");
+            ImGui::BeginChild("Files", ImVec2(350, 200), true);
+
+            // Читаем файлы из папки Saves
+            if (fs::exists("Saves")) {
+                for (const auto& entry : fs::directory_iterator("Saves")) {
+                    if (entry.path().extension() == ".json") {
+                        std::string fname = entry.path().filename().string();
+                        bool isSelected = (selectedLoadFile == fname);
+                        if (ImGui::Selectable(fname.c_str(), isSelected)) {
+                            selectedLoadFile = fname;
+                        }
+                    }
+                }
+            }
+            ImGui::EndChild();
+            ImGui::Spacing();
+
+            ImGui::BeginDisabled(selectedLoadFile.empty());
+            if (ImGui::Button("Load", ImVec2(120, 0))) {
+                scene.loadFromFile("Saves/" + selectedLoadFile, loadMode == 1);
+                showLoadModal = false;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) showLoadModal = false;
+
+            ImGui::EndPopup();
+        }
+        // ==========================================
+        // 3. Окно ПРАВИЛЬНОГО МНОГОУГОЛЬНИКА
+        // ==========================================
+        if (showRegularPolygonModal) ImGui::OpenPopup("New Regular Polygon##modal");
+
+        ImGui::SetNextWindowPos(ImVec2(winSize.x / 2.0f, winSize.y / 2.0f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("New Regular Polygon##modal", &showRegularPolygonModal, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+            ImGui::Checkbox("Random Parameters", &rpRandomize);
+            ImGui::Separator();
+
+            // Если стоит галочка "Рандом", блокируем ручной ввод
+            ImGui::BeginDisabled(rpRandomize);
+            ImGui::SliderInt("Number of Sides", &rpSides, 3, 20);
+            ImGui::InputFloat("Side Length (px)", &rpLength);
+            ImGui::ColorEdit4("Fill Color", rpFill);
+            ImGui::ColorEdit4("Stroke Color", rpStroke);
+            ImGui::EndDisabled();
+
+            ImGui::Spacing();
+
+            if (ImGui::Button("Create", ImVec2(120, 0))) {
+                int sides = rpSides;
+                float length = rpLength;
+                sf::Color fill(rpFill[0] * 255, rpFill[1] * 255, rpFill[2] * 255, rpFill[3] * 255);
+                sf::Color stroke(rpStroke[0] * 255, rpStroke[1] * 255, rpStroke[2] * 255, rpStroke[3] * 255);
+
+                // Генерируем случайные параметры
+                if (rpRandomize) {
+                    sides = 3 + std::rand() % 8; // От 3 до 10 сторон
+                    length = 20.0f + static_cast<float>(std::rand() % 80); // Длина от 20 до 100
+                    fill = sf::Color(std::rand() % 256, std::rand() % 256, std::rand() % 256, 100 + std::rand() % 100);
+                    stroke = sf::Color(std::rand() % 256, std::rand() % 256, std::rand() % 256, 255);
+                }
+
+                // Защита от слишком маленькой длины
+                if (length < 5.0f) length = 5.0f;
+
+                // Математика: Радиус описанной окружности = L / (2 * sin(PI / N))
+                const float PI = 3.14159265f;
+                float radius = length / (2.0f * std::sin(PI / sides));
+
+                // Создаем нормализованные точки правильного многоугольника
+                std::vector<sf::Vector2f> basePoints;
+                float startAngle = -PI / 2.0f; // Начинаем с верхней точки
+                for (int i = 0; i < sides; ++i) {
+                    float angle = startAngle + i * (2.0f * PI / sides);
+                    basePoints.push_back({ std::cos(angle), std::sin(angle) });
+                }
+
+                // Размещаем фигуру по центру текущего обзора камеры
+                sf::Vector2f center = scene.getScreenToWorld(sf::Vector2i(winSize.x / 2, winSize.y / 2), window);
+
+                // Создаем фигуру (размер рамки = 2 радиуса)
+                auto poly = std::make_unique<PolygonShape>(center, sf::Vector2f(radius * 2.0f, radius * 2.0f), true, basePoints);
+
+                // Применяем цвета
+                poly->setGlobalFillColor(fill);
+                poly->setGlobalColor(stroke);
+
+                scene.addShape(std::move(poly));
+
+                showRegularPolygonModal = false;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) showRegularPolygonModal = false;
+
+            ImGui::EndPopup();
+        }
         ImGui::End();
         // ==========================================
 
-        // Отрисовка
-        window.clear(sf::Color(37, 37, 38)); // Цвет фона окна, как в твоем WPF словаре (BgMain)
 
+        // Отрисовка
+        window.clear(sf::Color(240, 240, 240)); // <-- СВЕТЛО-СЕРЫЙ ЦВЕТ ВМЕСТО ТЕМНОГО
         scene.draw(window);          // 1. Сначала рисуем холст с фигурами
         ImGui::SFML::Render(window); // 2. Затем поверх рисуем интерфейс
 

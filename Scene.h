@@ -57,6 +57,9 @@ private:
 	//--
 	int m_nextShapeId = 1; // <-- НОВЫЕ СЧЕТЧИКИ
 	int m_nextGroupId = 1;
+	//--
+	std::string m_clipboard;
+	int m_pasteCount = 1; // Счетчик для смещения при вставке "лесенкой"
 
 public:
 	Scene();
@@ -90,7 +93,8 @@ public:
 	// в файл
 	void deleteSelected();
 	void saveToFile(const std::string& filename) const;
-	void loadFromFile(const std::string& filename);
+	void saveSelectedToFile(const std::string& filename) const; // <-- НОВОЕ
+	void loadFromFile(const std::string& filename, bool merge = false); // <-- ИЗМЕНЕНО
 	// --- НОВОЕ: Методы курсора ---
 	void initCursors();
 	void updateCursor(sf::RenderWindow& window, sf::Vector2f mousePos);
@@ -109,4 +113,7 @@ public:
 	// Добавь эти две строки рядом с getShowGridRef()
 	float getZoom() const { return m_zoom; }
 	void setZoom(float newZoom, sf::Vector2f windowSize);
+	// --- НОВОЕ: Методы копипаста ---
+	void copySelected();
+	void paste();
 };

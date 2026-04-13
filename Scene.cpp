@@ -3,6 +3,9 @@
 #include "PolygonShape.h"
 #include "CircleShape.h"
 #include <fstream>
+#include "imgui.h"
+#include <map> // Добавь в самое начало Scene.cpp
+#include <sstream>
 Scene::Scene() {
     // Начальный размер камеры (будет переопределен при старте окна)
     m_view.setCenter({ 600.0f, 400.0f });
@@ -199,26 +202,26 @@ void Scene::draw(sf::RenderTarget& target) const {
 
     // 1. Рисуем фигуры и выделение
     for (const auto& shape : m_shapes) shape->draw(target);
+
     // =========================================================================
     // --- ИСПРАВЛЕННЫЙ БЛОК: Визуализация Выделения ---
     // =========================================================================
 
     // --- 1. Логика определения формальной группы ---
-    // Нам нужно понять, выделена ли целая формальная группа (например, Ctrl+G),
-    // или это мульти-выделение независимых фигур (или Ctrl+Клик внутрь группы).
     bool isFormalGroupSelected = false;
     int selectedGroupId = 0;
 
     if (!m_selectedShapes.empty()) {
         selectedGroupId = m_selectedShapes[0]->getGroupId();
 
-        if (!selectedGroupId!=0) {
+        // ВАЖНО: Проверяем, что ID не равен 0 (т.е. фигура реально состоит в группе)
+        if (selectedGroupId != 0) {
             isFormalGroupSelected = true;
 
             // Проверка А: Все ли выделенные фигуры принадлежат ЭТОЙ группе?
             for (auto* shape : m_selectedShapes) {
                 if (shape->getGroupId() != selectedGroupId) {
-                    isFormalGroupSelected = false; // Нет, это мульти-выделение разных объектов
+                    isFormalGroupSelected = false; // Нет, это мульти-выделение
                     break;
                 }
             }
@@ -230,8 +233,6 @@ void Scene::draw(sf::RenderTarget& target) const {
                     if (s->getGroupId() == selectedGroupId) shapesInFormalGroup++;
                 }
 
-                // Если количество выделенных не совпадает с общим кол-вом в группе,
-                // значит, мы "провалились" внутрь группы (например, Ctrl+Клик по одной фигуре).
                 if (m_selectedShapes.size() != shapesInFormalGroup) {
                     isFormalGroupSelected = false;
                 }
@@ -239,20 +240,17 @@ void Scene::draw(sf::RenderTarget& target) const {
         }
     }
 
-    // --- 2. Условная отрисовка индивидуальных элементов (Исправление) ---
-    // Прячем индивидуальные рамки и маркеры, если:
-    // А) Выделена формальная группа
-    // Б) Выделено больше одной фигуры (мульти-выделение через Shift)
+    // --- 2. Отрисовка индивидуальных элементов ---
+    // Прячем маркеры, если выделена целая группа ИЛИ зажат Shift (мульти-селект)
     bool hideIndividualHandles = (isFormalGroupSelected || m_selectedShapes.size() > 1);
-    
+
     if (!hideIndividualHandles && m_selectedShapes.size() == 1) {
         for (auto* shape : m_selectedShapes) {
             shape->drawSelection(target);
         }
     }
 
-    // --- 3. Отрисовка глобальной рамки и оранжевого якоря ГРУППЫ ---
-    // Этот блок срабатывает и для мульти-выделения, и для формальной группы.
+    // --- 3. Отрисовка глобальной рамки и якоря ГРУППЫ ---
     if (m_selectedShapes.size() > 1 || isFormalGroupSelected) {
         float minX = 99999.f, minY = 99999.f, maxX = -99999.f, maxY = -99999.f;
         for (auto* shape : m_selectedShapes) {
@@ -263,7 +261,7 @@ void Scene::draw(sf::RenderTarget& target) const {
             if (bounds.position.y + bounds.size.y > maxY) maxY = bounds.position.y + bounds.size.y;
         }
 
-        // Синяя глобальная рамка (Existing)
+        // Синяя глобальная рамка
         sf::RectangleShape globalBox({ maxX - minX, maxY - minY });
         globalBox.setPosition({ minX, minY });
         globalBox.setFillColor(sf::Color::Transparent);
@@ -271,7 +269,7 @@ void Scene::draw(sf::RenderTarget& target) const {
         globalBox.setOutlineThickness(2.0f);
         target.draw(globalBox);
 
-        // Углы глобальной рамки (Existing)
+        // Углы глобальной рамки
         float hw = 5.0f;
         sf::RectangleShape handle(sf::Vector2f(hw * 2, hw * 2));
         handle.setFillColor(sf::Color::White);
@@ -283,31 +281,11 @@ void Scene::draw(sf::RenderTarget& target) const {
         handle.setPosition({ maxX - hw, maxY - hw }); target.draw(handle); // BR
         handle.setPosition({ minX - hw, maxY - hw }); target.draw(handle); // BL
 
-        // --- НОВОЕ УСЛОВИЕ ДЛЯ ЯКОРЯ ---
-        // Отрисовываем оранжевый якорь группы ТОЛЬКО если выделена ВСЯ формальная группа.
+        // Отрисовываем оранжевый якорь ГРУППЫ (только если это формальная группа)
         if (isFormalGroupSelected) {
-            // Находим точку якоря этой группы из m_groups (предполагаем наличие этой переменной)
-            // или используем временную формальную группу как в main.cpp. 
-            // Но в Scene::draw лучше брать напрямую из m_groups.
-
             sf::Vector2f groupAnchorPt;
-            // (Логика поиска anchorPoint группы с ID selectedGroupId из m_groupsScene)
-            // assuming standard project structure:
-            /*
-            for (const auto& group : m_groupsScene) { // (Assuming Scene has vector of formal ShapeGroups)
-                if (group.id == selectedGroupId) {
-                    groupAnchorPt = group.anchorPoint;
-                    break;
-                }
-            }
-            */
-            // ПРИМЕЧАНИЕ: Чтобы этот код скомпилировался, убедись, что m_groupsScene доступна в Scene::draw
-            // или что ты используешь formalGroupHelper, созданный как в main.cpp.
-
-            // Если в Scene.cpp нет прямого доступа к m_groupsScene, 
-            // мы используем логику formalGroupHelper как в main.cpp:
             bool groupFound = false;
-            for (auto& g : m_groups) { // <--- Предполагаю, что в Scene.h есть std::vector<ShapeGroup> m_groups
+            for (auto& g : m_groups) {
                 if (g.id == selectedGroupId) {
                     groupAnchorPt = g.anchorPoint;
                     groupFound = true;
@@ -316,7 +294,6 @@ void Scene::draw(sf::RenderTarget& target) const {
             }
 
             if (groupFound) {
-                // Рисуем оранжевый якорь ГРУППЫ
                 sf::CircleShape gAnchor(7.0f);
                 gAnchor.setOrigin({ 7.0f, 7.0f });
                 gAnchor.setPosition(groupAnchorPt);
@@ -344,15 +321,56 @@ void Scene::draw(sf::RenderTarget& target) const {
     }
 
     // 4. Режим рисования
+    // 4. Режим рисования
     if (m_isDrawingMode && !m_drawingPoints.empty()) {
+        sf::Vector2f previewPos = m_currentMousePos;
+
+        // --- БОНУС: Визуальный предпросмотр привязки по Shift! ---
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift)) {
+            sf::Vector2f lastPt = m_drawingPoints.back();
+            sf::Vector2f diff = previewPos - lastPt;
+            float angle = std::atan2(diff.y, diff.x);
+            float len = std::sqrt(diff.x * diff.x + diff.y * diff.y);
+            const float snapRad = 15.0f * 3.14159265f / 180.0f; // Шаг 15 градусов
+            angle = std::round(angle / snapRad) * snapRad;
+            previewPos = lastPt + sf::Vector2f(std::cos(angle) * len, std::sin(angle) * len);
+        }
+
+        // Рисуем саму линию
         sf::VertexArray lines(sf::PrimitiveType::LineStrip, m_drawingPoints.size() + 1);
         for (size_t i = 0; i < m_drawingPoints.size(); i++) {
             lines[i].position = m_drawingPoints[i];
             lines[i].color = sf::Color::White;
         }
-        lines[m_drawingPoints.size()].position = m_currentMousePos;
+        lines[m_drawingPoints.size()].position = previewPos; // Тянем к точке предпросмотра
         lines[m_drawingPoints.size()].color = sf::Color(255, 255, 255, 150);
         target.draw(lines);
+
+        // ========================================================
+        // --- НОВОЕ: Оверлей длины и угла возле курсора ---
+        // ========================================================
+        sf::Vector2f lastPt = m_drawingPoints.back();
+        sf::Vector2f diff = previewPos - lastPt;
+
+        float length = std::sqrt(diff.x * diff.x + diff.y * diff.y);
+        float angleDeg = std::atan2(diff.y, diff.x) * 180.0f / 3.14159265f;
+
+        // Переводим от -180...180 к 0...360 для удобного восприятия
+        if (angleDeg < 0.0f) angleDeg += 360.0f;
+
+        // Переводим мировые координаты (с учетом зума и камеры) в экранные пиксели окна
+        sf::Vector2i screenPos = target.mapCoordsToPixel(previewPos, m_view);
+
+        char overlayText[64];
+        snprintf(overlayText, sizeof(overlayText), "L: %.1f px\nA: %.1f deg", length, angleDeg);
+
+        // Рисуем текст с помощью ImGui прямо поверх SFML холста
+        // Отступаем на 15 пикселей от курсора, чтобы не перекрывать саму точку
+        ImGui::GetForegroundDrawList()->AddText(
+            ImVec2(static_cast<float>(screenPos.x + 15), static_cast<float>(screenPos.y + 15)),
+            IM_COL32(255, 255, 0, 255), // Ярко-желтый цвет
+            overlayText
+        );
     }
 
     // --- ВАЖНО: ВОЗВРАЩАЕМ ВИД ОКНА ---
@@ -1055,43 +1073,65 @@ void Scene::saveToFile(const std::string& filename) const {
     }
 }
 
-void Scene::loadFromFile(const std::string& filename) {
+// --- ИСПРАВЛЕННЫЙ МЕТОД ЗАГРУЗКИ С ПОДДЕРЖКОЙ СЛИЯНИЯ ---
+void Scene::loadFromFile(const std::string& filename, bool merge) {
     std::ifstream in(filename);
     if (!in) return;
 
-    clear(); // Очищаем текущую сцену
+    if (!merge) clear(); // Если не слияние, очищаем старую сцену
 
-    std::string dummy; // Переменная-пустышка для "съедания" текстовых маркеров
+    std::map<int, int> groupRemap; // Словарь для переназначения ID групп при слиянии
+    std::string dummy;
     size_t groupCount = 0;
 
-    // Читаем "GroupsCount:" и число
     if (!(in >> dummy >> groupCount)) return;
 
     for (size_t i = 0; i < groupCount; ++i) {
         ShapeGroup g;
-        in >> dummy >> g.id >> g.name >> g.anchorPoint.x >> g.anchorPoint.y; // dummy съедает слово "Group:"
-        std::replace(g.name.begin(), g.name.end(), '_', ' '); // Возвращаем пробелы
+        int savedId;
+        in >> dummy >> savedId >> g.name >> g.anchorPoint.x >> g.anchorPoint.y;
+        std::replace(g.name.begin(), g.name.end(), '_', ' ');
+
+        if (merge) {
+            g.id = m_nextGroupId++; // Генерируем новый ID, чтобы не было конфликтов
+            groupRemap[savedId] = g.id; // Запоминаем, что старый ID теперь ссылается на новый
+        }
+        else {
+            g.id = savedId;
+            if (savedId >= m_nextGroupId) m_nextGroupId = savedId + 1;
+        }
         m_groups.push_back(g);
     }
 
     size_t shapeCount = 0;
-    in >> dummy >> shapeCount; // Съедает "ShapesCount:"
+    in >> dummy >> shapeCount;
 
-    // Фабрика фигур
     for (size_t i = 0; i < shapeCount; ++i) {
         std::string typeStr;
-        in >> typeStr; // Читает маркер типа, например "[Polygon]"
+        in >> typeStr;
 
         std::unique_ptr<IShape> shape;
-        if (typeStr == "[Polygon]") {
-            shape = std::make_unique<PolygonShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10), true, std::vector<sf::Vector2f>{});
-        }
-        else if (typeStr == "[Circle]") {
-            shape = std::make_unique<CircleShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10));
-        }
+        if (typeStr == "[Polygon]") shape = std::make_unique<PolygonShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10), true, std::vector<sf::Vector2f>{});
+        else if (typeStr == "[Circle]") shape = std::make_unique<CircleShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10));
 
         if (shape) {
-            shape->load(in); // Фигура сама считает свои параметры
+            shape->load(in);
+
+            if (merge) {
+                shape->setId(m_nextShapeId++); // Выдаем фигуре новый безопасный ID
+                int oldGid = shape->getGroupId();
+                if (oldGid != 0 && groupRemap.count(oldGid)) {
+                    shape->setGroupId(groupRemap[oldGid]); // Привязываем к новой группе
+                }
+                else {
+                    shape->setGroupId(0);
+                }
+                shape->setSelected(true); // При слиянии удобно сразу выделить новые объекты
+                m_selectedShapes.push_back(shape.get());
+            }
+            else {
+                if (shape->getId() >= m_nextShapeId) m_nextShapeId = shape->getId() + 1;
+            }
             m_shapes.push_back(std::move(shape));
         }
     }
@@ -1106,4 +1146,142 @@ void Scene::selectShape(int id) {
             break; // ID уникальны, дальше искать нет смысла
         }
     }
+}
+// --- НОВЫЙ МЕТОД СОХРАНЕНИЯ ТОЛЬКО ВЫДЕЛЕННОГО ---
+void Scene::saveSelectedToFile(const std::string& filename) const {
+    std::ofstream out(filename);
+    if (!out) return;
+
+    // 1. Ищем, какие группы затронуты выделением
+    std::vector<int> referencedGroups;
+    for (auto* s : m_selectedShapes) {
+        int gid = s->getGroupId();
+        if (gid != 0 && std::find(referencedGroups.begin(), referencedGroups.end(), gid) == referencedGroups.end()) {
+            referencedGroups.push_back(gid);
+        }
+    }
+
+    // 2. Сохраняем только нужные группы
+    out << "GroupsCount: " << referencedGroups.size() << "\n";
+    for (int gid : referencedGroups) {
+        auto it = std::find_if(m_groups.begin(), m_groups.end(), [gid](const ShapeGroup& g) { return g.id == gid; });
+        if (it != m_groups.end()) {
+            std::string safeName = it->name;
+            std::replace(safeName.begin(), safeName.end(), ' ', '_');
+            out << "Group: " << it->id << " " << safeName << " " << it->anchorPoint.x << " " << it->anchorPoint.y << "\n";
+        }
+    }
+
+    // 3. Сохраняем выделенные фигуры
+    out << "\nShapesCount: " << m_selectedShapes.size() << "\n";
+    for (const auto* shape : m_selectedShapes) {
+        out << "\n[" << shape->getType() << "]\n";
+        shape->save(out);
+    }
+}
+// ==========================================
+// КОПИРОВАНИЕ В БУФЕР ОБМЕНА
+// ==========================================
+void Scene::copySelected() {
+    if (m_selectedShapes.empty()) return;
+
+    std::ostringstream out;
+
+    // 1. Ищем затронутые группы
+    std::vector<int> referencedGroups;
+    for (auto* s : m_selectedShapes) {
+        int gid = s->getGroupId();
+        if (gid != 0 && std::find(referencedGroups.begin(), referencedGroups.end(), gid) == referencedGroups.end()) {
+            referencedGroups.push_back(gid);
+        }
+    }
+
+    // 2. Сохраняем группы в текстовый поток
+    out << "GroupsCount: " << referencedGroups.size() << "\n";
+    for (int gid : referencedGroups) {
+        auto it = std::find_if(m_groups.begin(), m_groups.end(), [gid](const ShapeGroup& g) { return g.id == gid; });
+        if (it != m_groups.end()) {
+            std::string safeName = it->name;
+            std::replace(safeName.begin(), safeName.end(), ' ', '_');
+            out << "Group: " << it->id << " " << safeName << " " << it->anchorPoint.x << " " << it->anchorPoint.y << "\n";
+        }
+    }
+
+    // 3. Сохраняем фигуры в текстовый поток
+    out << "\nShapesCount: " << m_selectedShapes.size() << "\n";
+    for (const auto* shape : m_selectedShapes) {
+        out << "\n[" << shape->getType() << "]\n";
+        shape->save(out);
+    }
+
+    // Сохраняем строку в наш внутренний буфер и сбрасываем счетчик лесенки
+    m_clipboard = out.str();
+    m_pasteCount = 1;
+}
+
+// ==========================================
+// ВСТАВКА ИЗ БУФЕРА ОБМЕНА
+// ==========================================
+void Scene::paste() {
+    if (m_clipboard.empty()) return;
+
+    std::istringstream in(m_clipboard);
+    clearSelection(); // Сбрасываем старое выделение, чтобы выделить вставленное
+
+    std::map<int, int> groupRemap;
+    std::string dummy;
+    size_t groupCount = 0;
+
+    if (!(in >> dummy >> groupCount)) return;
+
+    // Рассчитываем смещение "лесенкой"
+    sf::Vector2f offset(20.0f * m_pasteCount, 20.0f * m_pasteCount);
+
+    for (size_t i = 0; i < groupCount; ++i) {
+        ShapeGroup g;
+        int savedId;
+        in >> dummy >> savedId >> g.name >> g.anchorPoint.x >> g.anchorPoint.y;
+        std::replace(g.name.begin(), g.name.end(), '_', ' ');
+
+        g.id = m_nextGroupId++; // Генерируем новый ID для группы
+        groupRemap[savedId] = g.id;
+
+        g.anchorPoint += offset; // Сдвигаем якорь группы
+
+        m_groups.push_back(g);
+    }
+
+    size_t shapeCount = 0;
+    in >> dummy >> shapeCount;
+
+    for (size_t i = 0; i < shapeCount; ++i) {
+        std::string typeStr;
+        in >> typeStr;
+
+        std::unique_ptr<IShape> shape;
+        if (typeStr == "[Polygon]") shape = std::make_unique<PolygonShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10), true, std::vector<sf::Vector2f>{});
+        else if (typeStr == "[Circle]") shape = std::make_unique<CircleShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10));
+
+        if (shape) {
+            shape->load(in);
+
+            shape->setId(m_nextShapeId++); // Новый безопасный ID для фигуры
+            int oldGid = shape->getGroupId();
+            if (oldGid != 0 && groupRemap.count(oldGid)) {
+                shape->setGroupId(groupRemap[oldGid]);
+            }
+            else {
+                shape->setGroupId(0);
+            }
+
+            // Сдвигаем саму фигуру
+            shape->setPosition(shape->getPosition() + offset);
+
+            shape->setSelected(true);
+            m_selectedShapes.push_back(shape.get());
+            m_shapes.push_back(std::move(shape));
+        }
+    }
+
+    m_pasteCount++; // Увеличиваем счетчик для следующей вставки
 }
