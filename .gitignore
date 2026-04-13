@@ -6,3 +6,4 @@ x64/
 *.user
 *.db
 *.opendb
+*.json
