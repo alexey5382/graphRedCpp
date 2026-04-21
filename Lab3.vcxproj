@@ -138,6 +138,7 @@
   <ItemGroup>
     <ClCompile Include="BaseShape.cpp" />
     <ClCompile Include="CircleShape.cpp" />
+    <ClCompile Include="Group.cpp" />
     <ClCompile Include="imgui\imgui-SFML.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
@@ -150,6 +151,7 @@
   <ItemGroup>
     <ClInclude Include="BaseShape.h" />
     <ClInclude Include="CircleShape.h" />
+    <ClInclude Include="Group.h" />
     <ClInclude Include="imgui\imconfig.h" />
     <ClInclude Include="imgui\imgui-SFML.h" />
     <ClInclude Include="imgui\imgui-SFML_export.h" />

@@ -10,6 +10,8 @@
 #include "PolygonShape.h"
 #include "CircleShape.h"
 #include <filesystem> // <-- ДОБАВЛЕНО ДЛЯ РАБОТЫ С ПАПКАМИ
+#include "Group.h"
+
 namespace fs = std::filesystem; // Для удобства
 int main() {
     // Создаем окно (синтаксис SFML 3.0)
@@ -302,94 +304,65 @@ int main() {
         // 1. ИЕРАРХИЯ СЦЕНЫ (Список всех объектов)
         // ==========================================
         if (ImGui::CollapsingHeader("Scene Hierarchy", ImGuiTreeNodeFlags_DefaultOpen)) {
-            // УБРАЛИ BeginChild, чтобы высота подстраивалась сама
 
-            // --- СПИСОК ГРУПП (Раскрывающиеся деревья) ---
-            if (!scene.getGroups().empty()) {
-                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "--- GROUPS ---");
+            // Лямбда для рекурсивной отрисовки дерева (работает как матрешка)
+            auto drawNode = [&](auto& self, IShape* shape) -> void {
+                ImGui::PushID(shape->getId());
 
-                for (auto& group : scene.getGroups()) {
-                    ImGui::PushID(group.id + 100000); // Уникальный ID для ImGui
+                bool isGroup = (shape->getType() == "Group");
+                ImVec4 color = isGroup ? ImVec4(1.0f, 0.8f, 0.0f, 1.0f) : ImVec4(0.4f, 0.8f, 1.0f, 1.0f);
+                const char* prefix = isGroup ? "Gr" : "ID";
 
-                    // ИСПРАВЛЕНО: Убрали флаг ImGuiTreeNodeFlags_SpanAvailWidth, 
-                    // чтобы хитбокс дерева не перекрывал кнопки справа
-                    bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)group.id,
-                        ImGuiTreeNodeFlags_OpenOnArrow,
-                        "[Gr:%04d]", group.id);
+                // Настраиваем логику отображения узла
+                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
 
-                    ImGui::SameLine();
+                // Проверяем, выделена ли эта фигура прямо сейчас
+                const auto& selected = scene.getSelectedShapes();
+                if (std::find(selected.begin(), selected.end(), shape) != selected.end()) {
+                    flags |= ImGuiTreeNodeFlags_Selected;
+                }
 
-                    // Поле переименования группы
-                    char gName[256];
-                    snprintf(gName, sizeof(gName), "%s", group.name.c_str());
-                    ImGui::SetNextItemWidth(100);
-                    if (ImGui::InputText("##gname", gName, sizeof(gName))) group.name = gName;
+                // Если это обычная фигура, убираем стрелочку раскрытия списка
+                if (!isGroup) {
+                    flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+                }
 
-                    ImGui::SameLine();
-                    if (ImGui::Button("Select##g")) {
-                        scene.clearSelection();
-                        scene.selectGroup(group.id);
-                    }
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                // Рисуем сам узел (текст с ID)
+                bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)shape->getId(), flags, "[%s:%04d]", prefix, shape->getId());
+                ImGui::PopStyleColor();
 
-                    // --- ДОЧЕРНИЕ ФИГУРЫ (Если группа раскрыта) ---
-                    if (nodeOpen) {
-                        for (auto& shapePtr : scene.getShapes()) {
-                            auto* shape = shapePtr.get();
-                            if (shape->getGroupId() == group.id) {
-                                ImGui::PushID(shape->getId());
+                // Обработка клика: выделяем фигуру при нажатии на текст
+                if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+                    bool isShift = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift);
+                    if (!isShift) scene.clearSelection();
+                    scene.selectShape(shape->getId());
+                }
 
-                                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "  [ID:%04d]", shape->getId());
-                                ImGui::SameLine();
+                // Поле ввода для переименования сразу справа от ID
+                ImGui::SameLine();
+                char sName[256];
+                snprintf(sName, sizeof(sName), "%s", shape->getName().c_str());
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x); // Растягиваем до конца панели
+                if (ImGui::InputText("##sname", sName, sizeof(sName))) shape->setName(sName);
 
-                                char sName[256];
-                                snprintf(sName, sizeof(sName), "%s", shape->getName().c_str());
-                                ImGui::SetNextItemWidth(90);
-                                if (ImGui::InputText("##sname", sName, sizeof(sName))) shape->setName(sName);
-
-                                ImGui::SameLine();
-                                if (ImGui::Button("Select##s")) {
-                                    scene.clearSelection();
-                                    scene.selectShape(shape->getId());
-                                }
-
-                                ImGui::PopID();
-                            }
+                // Если это группа И пользователь кликнул по стрелочке, чтобы её раскрыть:
+                if (isGroup && nodeOpen) {
+                    Group* group = dynamic_cast<Group*>(shape);
+                    if (group) {
+                        for (auto& childPtr : group->getChildren()) {
+                            self(self, childPtr.get()); // Рекурсивно рисуем детей
                         }
-                        ImGui::TreePop(); // Закрываем узел дерева
                     }
-                    ImGui::PopID();
+                    ImGui::TreePop(); // Закрываем ветку
                 }
-                ImGui::Separator();
-            }
 
-            // --- СПИСОК НЕЗАВИСИМЫХ ФИГУР ---
-            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "--- INDEPENDENT SHAPES ---");
+                ImGui::PopID();
+                };
+
             for (auto& shapePtr : scene.getShapes()) {
-                auto* shape = shapePtr.get();
-
-                // Показываем ЗДЕСЬ ТОЛЬКО те фигуры, которые НЕ состоят в группах
-                if (shape->getGroupId() == 0) {
-                    ImGui::PushID(shape->getId());
-
-                    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "[ID:%04d]", shape->getId());
-                    ImGui::SameLine();
-
-                    // Поле переименования фигуры
-                    char sName[256];
-                    snprintf(sName, sizeof(sName), "%s", shape->getName().c_str());
-                    ImGui::SetNextItemWidth(100);
-                    if (ImGui::InputText("##sname", sName, sizeof(sName))) shape->setName(sName);
-
-                    ImGui::SameLine();
-                    if (ImGui::Button("Select##s")) {
-                        scene.clearSelection();
-                        scene.selectShape(shape->getId());
-                    }
-
-                    ImGui::PopID();
-                }
+                drawNode(drawNode, shapePtr.get());
             }
-            // УБРАЛИ EndChild()
         }
         ImGui::Separator();
 
@@ -401,242 +374,40 @@ int main() {
         if (selected.size() == 1) {
             auto* shape = selected[0];
 
-            // --- НОВАЯ ШАПКА ОДИНОЧНОЙ ФИГУРЫ ---
-            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Selected Shape: %s", shape->getName().c_str());
+            // --- УНИВЕРСАЛЬНАЯ ШАПКА ---
+            ImVec4 headerColor = (shape->getType() == "Group") ? ImVec4(1.0f, 0.8f, 0.0f, 1.0f) : ImVec4(0.4f, 1.0f, 0.4f, 1.0f);
+            ImGui::TextColored(headerColor, "Selected: %s", shape->getName().c_str());
             ImGui::TextDisabled("ID: %04d | Type: %s", shape->getId(), shape->getType().c_str());
-
-            int gId = shape->getGroupId();
-            if (gId != 0) {
-                std::string gName = "Unknown";
-                for (auto& g : scene.getGroups()) if (g.id == gId) gName = g.name;
-
-                ImGui::TextColored(ImVec4(0.3f, 0.7f, 1.0f, 1.0f), "In Group: [%04d] %s", gId, gName.c_str());
-                if (ImGui::Button("Remove from Group", ImVec2(-1, 0))) {
-                    shape->setGroupId(0);
-                    scene.cleanupEmptyGroups();
-                }
-            }
             ImGui::Separator();
 
-            // ВАЖНО: Показываем полное меню свойств фигуры в любом случае!
-            selected[0]->showImGuiProperties();
+            // ВАЖНО: Вызов полиморфного метода.
+            // Если это Круг - покажет радиус. Если Группа - покажет её параметры масштаба и список детей!
+            shape->showImGuiProperties();
 
             ImGui::Separator();
-            ImGui::Text("Z-Index & Anchor:");
-            if (ImGui::Button("Bring to Front")) scene.bringToFront(selected[0]);
+            ImGui::Text("Z-Index:");
+            if (ImGui::Button("Bring to Front")) scene.bringToFront(shape);
             ImGui::SameLine();
-            if (ImGui::Button("Send to Back")) scene.sendToBack(selected[0]);
+            if (ImGui::Button("Send to Back")) scene.sendToBack(shape);
 
-            // --- ПРАВИЛЬНОЕ ЦЕНТРИРОВАНИЕ ЯКОРЯ ---
-            if (ImGui::Button("Center Anchor", ImVec2(-1, 0))) {
-
-                /*sf::FloatRect bounds = selected[0]->getBounds();
-                // Находим центр виртуальной рамки
-                sf::Vector2f center(bounds.position.x + bounds.size.x / 2.0f, bounds.position.y + bounds.size.y / 2.0f);
-                // Якорь - это смещение относительно m_position
-                selected[0]->setAnchorOffset(center - selected[0]->getPosition());*/
-
-                // Центрирование якоря по визуальной рамке (AABB)
-                sf::FloatRect bounds = selected[0]->getBounds();
-                sf::Vector2f center(bounds.position.x + bounds.size.x / 2.0f,
-                    bounds.position.y + bounds.size.y / 2.0f);
-                selected[0]->setAnchorPositionWorld(center);
+            // Кнопка разгруппировки (только для объекта Group)
+            if (shape->getType() == "Group") {
+                ImGui::Separator();
+                if (ImGui::Button("Ungroup", ImVec2(-1, 0))) {
+                    scene.ungroupSelected(); // <--- ТЕПЕРЬ БЕЗ АРГУМЕНТОВ
+                }
             }
         }
         else if (selected.size() > 1) {
-            ShapeGroup* formalGroup = scene.getFormalSelectedGroup();
+            // Мультивыделение (когда зажат Shift)
+            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1.0f), "Multiple Shapes Selected: %zu", selected.size());
 
-            if (formalGroup) {
-                // --- НОВАЯ ШАПКА ГРУППЫ ---
-                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Selected Group: %s", formalGroup->name.c_str());
-                ImGui::TextDisabled("Group ID: %04d", formalGroup->id);
-
-                if (ImGui::CollapsingHeader("Shapes in this Group", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    for (auto* s : selected) {
-                        ImGui::BulletText("[ID:%04d] %s", s->getId(), s->getName().c_str());
-                    }
-                }
-
-                if (ImGui::Button("Ungroup", ImVec2(-1, 0))) {
-                    scene.ungroupSelected(formalGroup->id);
-                    scene.cleanupEmptyGroups();
-                }
-                ImGui::Separator();
-                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1.0f), "Group Anchor (World):");
-
-                // Изменение глобального якоря группы
-                float gAnchor[2] = { formalGroup->anchorPoint.x, formalGroup->anchorPoint.y };
-                if (ImGui::DragFloat2("##gAnchor", gAnchor, 1.0f)) {
-                    formalGroup->anchorPoint = { gAnchor[0], gAnchor[1] };
-                }
-
-                if (ImGui::Button("Center Anchor")) {
-                    float minX = 99999.f, minY = 99999.f, maxX = -99999.f, maxY = -99999.f;
-                    for (auto* shape : selected) {
-                        sf::FloatRect bounds = shape->getBounds();
-                        if (bounds.position.x < minX) minX = bounds.position.x;
-                        if (bounds.position.y < minY) minY = bounds.position.y;
-                        if (bounds.position.x + bounds.size.x > maxX) maxX = bounds.position.x + bounds.size.x;
-                        if (bounds.position.y + bounds.size.y > maxY) maxY = bounds.position.y + bounds.size.y;
-                    }
-                    formalGroup->anchorPoint = { minX + (maxX - minX) / 2.0f, minY + (maxY - minY) / 2.0f };
-                }
-
-                // ==========================================
-                // --- ИДЕАЛЬНОЕ МАСШТАБИРОВАНИЕ ГРУППЫ ---
-                // ==========================================
-                ImGui::Separator();
-                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1.0f), "Group Scale:");
-
-                float minX = 999999.f, minY = 999999.f, maxX = -999999.f, maxY = -999999.f;
-                for (auto* shape : selected) {
-                    sf::FloatRect b = shape->getBounds();
-                    if (b.position.x < minX) minX = b.position.x;
-                    if (b.position.y < minY) minY = b.position.y;
-                    if (b.position.x + b.size.x > maxX) maxX = b.position.x + b.size.x;
-                    if (b.position.y + b.size.y > maxY) maxY = b.position.y + b.size.y;
-                }
-                float currentGWidth = std::max(0.1f, maxX - minX);
-                float currentGHeight = std::max(0.1f, maxY - minY);
-
-                // Статическая память для снимков UI
-                static bool isGroupUIScaling = false;
-                static float baseGWidth = 1.0f, baseGHeight = 1.0f;
-                static sf::Vector2f baseGroupAnchor;
-                static sf::Vector2f baseGroupFixedCorner;
-                static std::vector<ShapeSnapshot> uiSnapshots;
-
-                float displayScale[2] = { currentGWidth, currentGHeight };
-
-                ImGui::Text("Bounding Box Scale (W/H):");
-                ImGui::SetNextItemWidth(150);
-                bool changed1 = ImGui::SliderFloat2("##gScaleSl", displayScale, 10.0f, 2000.0f);
-                bool act1 = ImGui::IsItemActivated(); bool deact1 = ImGui::IsItemDeactivated();
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(120);
-                bool changed2 = ImGui::InputFloat2("##gScaleInp", displayScale, "%.1f");
-                bool act2 = ImGui::IsItemActivated(); bool deact2 = ImGui::IsItemDeactivated();
-
-                ImGui::Text("Relative Scale (%%):");
-                float canvasDiag = std::sqrt(1200.0f * 1200.0f + 800.0f * 800.0f);
-                float currentGDiag = std::sqrt(currentGWidth * currentGWidth + currentGHeight * currentGHeight);
-                float displayRelScale = (currentGDiag / canvasDiag) * 500.0f;
-
-                ImGui::SetNextItemWidth(150);
-                bool changed3 = ImGui::SliderFloat("##gRelSl", &displayRelScale, 1.0f, 500.0f, "%.1f %%");
-                bool act3 = ImGui::IsItemActivated(); bool deact3 = ImGui::IsItemDeactivated();
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(120);
-                bool changed4 = ImGui::InputFloat("##gRelInp", &displayRelScale, 0.0f, 0.0f, "%.1f");
-                bool act4 = ImGui::IsItemActivated(); bool deact4 = ImGui::IsItemDeactivated();
-
-                bool anyAct = act1 || act2 || act3 || act4;
-                bool anyDeact = deact1 || deact2 || deact3 || deact4;
-                bool anyChanged = changed1 || changed2 || changed3 || changed4;
-
-                // ФОТОГРАФИРУЕМ ГРУППУ
-                if (anyAct) {
-                    isGroupUIScaling = true;
-                    baseGWidth = currentGWidth;
-                    baseGHeight = currentGHeight;
-                    baseGroupAnchor = formalGroup->anchorPoint;
-                    baseGroupFixedCorner = { minX, minY };
-                    uiSnapshots.clear();
-                    for (auto* shape : selected) {
-                        uiSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation(), shape->getBasePoints() });
-                    }
-                }
-
-                // ПРИМЕНЯЕМ МАСШТАБ СТРОГО К СНИМКУ
-                if (anyChanged) {
-                    if (!isGroupUIScaling) {
-                        isGroupUIScaling = true;
-                        baseGWidth = currentGWidth;
-                        baseGHeight = currentGHeight;
-                        baseGroupAnchor = formalGroup->anchorPoint;
-                        baseGroupFixedCorner = { minX, minY };
-                        uiSnapshots.clear();
-                        for (auto* shape : selected) {
-                            uiSnapshots.push_back({ shape->getPosition(), shape->getSize(), shape->getAnchorOffset(), shape->getRotation(), shape->getBasePoints() });
-                        }
-                    }
-
-                    float targetW = displayScale[0];
-                    float targetH = displayScale[1];
-
-                    if (changed3 || changed4) {
-                        float targetDiag = (displayRelScale / 500.0f) * canvasDiag;
-                        float baseDiag = std::sqrt(baseGWidth * baseGWidth + baseGHeight * baseGHeight);
-                        float factor = targetDiag / baseDiag;
-                        targetW = baseGWidth * factor;
-                        targetH = baseGHeight * factor;
-                    }
-
-                    float Sx = targetW / baseGWidth;
-                    float Sy = targetH / baseGHeight;
-
-                    for (size_t i = 0; i < selected.size(); i++) {
-                        if (i >= uiSnapshots.size()) continue;
-                        auto* shape = selected[i];
-                        const auto& snap = uiSnapshots[i];
-
-                        shape->setPosition(snap.position);
-                        shape->setSize(snap.size);
-                        shape->setAnchorOffset(snap.anchorOffset);
-                        shape->setRotation(snap.rotation);
-                        if (!snap.basePoints.empty()) shape->setBasePoints(snap.basePoints);
-
-                        // Используем НАШ НОВЫЙ МЕТОД глобального искажения для всей группы!
-                        shape->applyGlobalScale(baseGroupFixedCorner, Sx, Sy);
-                    }
-
-                    // Масштабируем якорь самой группы
-                    sf::Vector2f dist = baseGroupAnchor - baseGroupFixedCorner;
-                    formalGroup->anchorPoint = baseGroupFixedCorner + sf::Vector2f(dist.x * Sx, dist.y * Sy);
-                }
-
-                if (anyDeact) {
-                    isGroupUIScaling = false;
-                }
-                // ==========================================
-
-                // Координаты фигур 
-                if (ImGui::CollapsingHeader("Shapes Coordinates (World & Relative)", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    for (size_t i = 0; i < selected.size(); i++) {
-                        ImGui::PushID(static_cast<int>(i));
-                        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Shape %zu", i + 1);
-
-                        // 1. Мировые координаты
-                        sf::Vector2f wPos = selected[i]->getPosition();
-                        float w[2] = { wPos.x, wPos.y };
-                        ImGui::SetNextItemWidth(150);
-                        if (ImGui::InputFloat2("World Pos", w, "%.1f")) {
-                            selected[i]->setPosition({ w[0], w[1] });
-                        }
-
-                        ImGui::SameLine();
-
-                        // 2. Относительные координаты (от Якоря Группы до Якоря Фигуры)
-                        sf::Vector2f shapeAnchorWorld = wPos + selected[i]->getAnchorOffset(); // Мировой якорь фигуры
-                        sf::Vector2f rPos = shapeAnchorWorld - formalGroup->anchorPoint;       // Относительный вектор
-
-                        float r[2] = { rPos.x, rPos.y };
-                        ImGui::SetNextItemWidth(150);
-                        if (ImGui::InputFloat2("Rel. Pos", r, "%.1f")) {
-                            // Восстанавливаем мировой якорь фигуры из новых относительных координат
-                            sf::Vector2f newShapeAnchorWorld = formalGroup->anchorPoint + sf::Vector2f(r[0], r[1]);
-                            // Сдвигаем левый верхний угол (m_position) так, чтобы якорь оказался в нужном месте
-                            selected[i]->setPosition(newShapeAnchorWorld - selected[i]->getAnchorOffset());
-                        }
-
-                        ImGui::Separator();
-                        ImGui::PopID();
-                    }
-                }
+            if (ImGui::Button("Group Selected", ImVec2(-1, 0))) {
+                scene.groupSelected();
             }
 
             ImGui::Separator();
-            ImGui::Text("Global Group Properties");
+            ImGui::Text("Global Properties");
 
             static float sharedFill[4] = { 0.8f, 0.8f, 0.8f, 0.5f };
             if (ImGui::ColorEdit4("Fill Color", sharedFill)) {
@@ -658,6 +429,7 @@ int main() {
         else {
             ImGui::TextDisabled("Select a shape to edit properties.");
         }
+
         // ==========================================
         // МОДАЛЬНЫЕ ОКНА СОХРАНЕНИЯ И ЗАГРУЗКИ
         // ==========================================

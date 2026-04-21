@@ -445,3 +445,19 @@ sf::Vector2f BaseShape::rotatePoint(sf::Vector2f point, sf::Vector2f anchor, flo
         anchor.y + d.x * sinA + d.y * cosA
     };
 }
+void BaseShape::captureState() {
+    m_snapshot = { m_position, m_size, m_anchorOffset, m_rotation, getBasePoints() };
+}
+
+void BaseShape::restoreState() {
+    m_position = m_snapshot.position;
+    m_size = m_snapshot.size;
+    m_anchorOffset = m_snapshot.anchorOffset;
+    m_rotation = m_snapshot.rotation;
+    setBasePoints(m_snapshot.basePoints);
+}
+
+IShape* BaseShape::getHitShape(sf::Vector2f mousePos) {
+    // Обычная фигура просто возвращает указатель на себя, если клик попал в неё
+    return contains(mousePos) ? this : nullptr;
+}

@@ -24,6 +24,7 @@ protected:
     int m_id = 0;                 // <-- НОВОЕ
     std::string m_name = "Shape"; // <-- НОВОЕ
     int m_groupId = 0;            // <-- ИЗМЕНЕНО: 0 означает, что фигуры нет в группе (вместо пустой строки)
+    ShapeSnapshot m_snapshot; // <-- ДОБАВИТЬ ЭТО
 
 public:
     BaseShape(sf::Vector2f position, sf::Vector2f size, bool isClosed);
@@ -81,4 +82,8 @@ public:
     std::vector<sf::Vector2f> getBasePoints() const override { return {}; }
     void setBasePoints(const std::vector<sf::Vector2f>& pts) override {}
     void applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) override;
+    //--
+    void captureState() override;
+    void restoreState() override;
+    IShape* getHitShape(sf::Vector2f mousePos) override;
 };

@@ -78,4 +78,8 @@ public:
     virtual std::vector<sf::Vector2f> getBasePoints() const = 0;
     virtual void setBasePoints(const std::vector<sf::Vector2f>& pts) = 0;
     virtual void applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) = 0;
+    // --- НОВОЕ: Внутренняя система снимков и глубокий клик ---
+    virtual void captureState() = 0;
+    virtual void restoreState() = 0;
+    virtual IShape* getHitShape(sf::Vector2f mousePos) = 0;
 };

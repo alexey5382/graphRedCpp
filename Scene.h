@@ -7,18 +7,11 @@
 #include <SFML/Window/Cursor.hpp> // <-- ДОБАВЛЕНО
 #include <optional>             // <-- ДОБАВИТЬ ЭТО ДЛЯ SFML 3
 
-// 1. Обновляем структуру группы
-struct ShapeGroup {
-	int id;              // <-- Изменено на int
-	std::string name;
-	sf::Vector2f anchorPoint;
-};
 
 class Scene {
 private:
 	std::vector<std::unique_ptr<IShape>> m_shapes;
 	std::vector<IShape*> m_selectedShapes;
-	std::vector<ShapeGroup> m_groups;
 
 	bool m_isDragging = false;
 	int m_draggedHandle = 0;
@@ -39,12 +32,8 @@ private:
 	std::optional<sf::Cursor> m_cursorSizeBLTR;
 	std::optional<sf::Cursor> m_cursorSizeAll;
 	bool m_cursorsLoaded = false;
-	// --- НОВОЕ: Переменные для снимков при масштабировании ---
-	std::vector<ShapeSnapshot> m_dragStartSnapshots;
-	std::vector<sf::FloatRect> m_dragStartBounds;
-	std::vector<sf::Vector2f> m_dragStartAnchors;
+	//--
 	sf::FloatRect m_dragStartGroupBounds;
-	sf::Vector2f m_dragStartFormalGroupAnchor;
 	sf::Vector2f m_scaleMouseOffset; // <-- ДОБАВИТЬ ЭТО (Смещение мыши для прямой рамки)
 	// --- НОВОЕ: Камера и сетка ---
 	sf::View m_view;
@@ -56,7 +45,6 @@ private:
 	float m_gridSize = 50.0f;
 	//--
 	int m_nextShapeId = 1; // <-- НОВЫЕ СЧЕТЧИКИ
-	int m_nextGroupId = 1;
 	//--
 	std::string m_clipboard;
 	int m_pasteCount = 1; // Счетчик для смещения при вставке "лесенкой"
@@ -69,7 +57,6 @@ public:
 
 	// Геттеры для UI
 	const std::vector<IShape*>& getSelectedShapes() const { return m_selectedShapes; }
-	std::vector<ShapeGroup>& getGroups() { return m_groups; }
 	const std::vector<std::unique_ptr<IShape>>& getShapes() const { return m_shapes; }
 
 	// --- ОБНОВЛЕНО: Поддержка клавиши Shift ---
@@ -78,15 +65,12 @@ public:
 	void handleMouseMove(sf::Vector2f mousePos);
 
 	void groupSelected();
-	void ungroupSelected(int groupId);
-	void selectGroup(int groupId);
+	void ungroupSelected();
 	void selectShape(int id); // <-- Новый метод для клика из меню!
 	void clearSelection();
 
 	void bringToFront(IShape* shape);
 	void sendToBack(IShape* shape);
-	void cleanupEmptyGroups();
-	ShapeGroup* getFormalSelectedGroup();
 	void startDrawingMode();
 	void finishDrawing(bool isClosed);
 	void cancelDrawing();
