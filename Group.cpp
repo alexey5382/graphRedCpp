@@ -62,12 +62,7 @@ void Group::save(std::ostream& out) const {
 
 void Group::load(std::istream& in) {
     BaseShape::load(in);
-    // Логика загрузки детей (ChildrenCount) находится в Scene::parseShapeRecursive
 }
-
-// ==========================================
-// СЛОЖНАЯ ГЕОМЕТРИЯ И ТРАНСФОРМАЦИИ
-// ==========================================
 
 sf::FloatRect Group::getBounds() const {
     if (m_children.empty()) return sf::FloatRect({ m_position.x, m_position.y }, { 0.f, 0.f });
@@ -129,10 +124,6 @@ void Group::applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) {
     m_size = { b.size.x, b.size.y };
     m_anchorOffset = newAnchor - m_position;
 }
-
-// ==========================================
-// ИНТЕРФЕЙС ИНСПЕКТОРА СВОЙСТВ (IMGUI)
-// ==========================================
 
 void Group::showImGuiProperties() {
     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Group Properties");

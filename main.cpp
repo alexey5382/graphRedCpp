@@ -5,14 +5,13 @@
 #include <cstdlib>
 #include <ctime>
 
-// Подключаем нашу архитектуру
 #include "Scene.h"
 #include "PolygonShape.h"
-#include "CircleShape.h"
-#include <filesystem> // <-- ДОБАВЛЕНО ДЛЯ РАБОТЫ С ПАПКАМИ
+#include "EllipseShape.h"
+#include <filesystem>
 #include "Group.h"
 
-namespace fs = std::filesystem; // Для удобства
+namespace fs = std::filesystem;
 int main() {
     // Создаем окно (синтаксис SFML 3.0)
     // Получаем разрешение рабочего стола
@@ -239,7 +238,7 @@ int main() {
         }
 
         if (ImGui::Button("Add Circle", ImVec2(-1, 0))) {
-            scene.addShape(std::make_unique<CircleShape>(sf::Vector2f(800, 400), sf::Vector2f(100, 100)));
+            scene.addShape(std::make_unique<EllipseShape>(sf::Vector2f(800, 400), sf::Vector2f(100, 100)));
         }
         if (ImGui::Button("Add Trapezoid", ImVec2(-1, 0))) {
             // Точные координаты из твоего C# (MyTrapezoid)
@@ -385,6 +384,11 @@ int main() {
             shape->showImGuiProperties();
 
             ImGui::Separator();
+            if (ImGui::Button("Center Anchor", ImVec2(-1, 0))) {
+                sf::FloatRect b = shape->getBounds();
+                sf::Vector2f center(b.position.x + b.size.x / 2.0f, b.position.y + b.size.y / 2.0f);
+                shape->setAnchorPositionWorld(center);
+            }
             ImGui::Text("Z-Index:");
             if (ImGui::Button("Bring to Front")) scene.bringToFront(shape);
             ImGui::SameLine();
@@ -396,6 +400,15 @@ int main() {
                 if (ImGui::Button("Ungroup", ImVec2(-1, 0))) {
                     scene.ungroupSelected(); // <--- ТЕПЕРЬ БЕЗ АРГУМЕНТОВ
                 }
+            }
+            // Показываем её для ЛЮБОЙ фигуры, если она спрятана в группе
+            if (scene.isShapeInGroup(shape)) {
+                ImGui::Separator();
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.4f, 0.0f, 1.0f));
+                if (ImGui::Button("Extract from Parent Group", ImVec2(-1, 0))) {
+                    scene.extractFromGroup(shape);
+                }
+                ImGui::PopStyleColor();
             }
         }
         else if (selected.size() > 1) {

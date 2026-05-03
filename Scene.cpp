@@ -1,7 +1,7 @@
 #include "Scene.h"
 #include <algorithm>
 #include "PolygonShape.h"
-#include "CircleShape.h"
+#include "EllipseShape.h"
 #include <fstream>
 #include "imgui.h"
 #include <map> // Добавь в самое начало Scene.cpp
@@ -22,7 +22,7 @@ std::unique_ptr<IShape> parseShapeRecursive(std::istream& in, int& nextId, bool 
 
     std::unique_ptr<IShape> shape;
     if (typeStr == "[Polygon]") shape = std::make_unique<PolygonShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10), true, std::vector<sf::Vector2f>{});
-    else if (typeStr == "[Circle]") shape = std::make_unique<CircleShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10));
+    else if (typeStr == "[Circle]") shape = std::make_unique<EllipseShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10));
     else if (typeStr == "[Group]") shape = std::make_unique<Group>(sf::Vector2f(0, 0));
 
     if (!shape) return nullptr;
@@ -153,12 +153,10 @@ void Scene::updateCursor(sf::RenderWindow& window, sf::Vector2f mousePos) {
     }
 
     // 3. Выбираем нужный курсор на основе активного элемента
-    if (activeHandle == 1 || activeHandle == 3) {
-        // Диагональ Левый-Верх <-> Правый-Низ
+    if (activeHandle == 1 || activeHandle == 3 || activeHandle == 11 || activeHandle == 13) {
         if (m_cursorSizeTLBR) window.setMouseCursor(*m_cursorSizeTLBR);
     }
-    else if (activeHandle == 2 || activeHandle == 4) {
-        // Диагональ Левый-Низ <-> Правый-Верх
+    else if (activeHandle == 2 || activeHandle == 4 || activeHandle == 12 || activeHandle == 14) {
         if (m_cursorSizeBLTR) window.setMouseCursor(*m_cursorSizeBLTR);
     }
     else if (activeHandle == 5 || hoverShape) {
@@ -174,12 +172,12 @@ void Scene::updateCursor(sf::RenderWindow& window, sf::Vector2f mousePos) {
         if (m_cursorArrow) window.setMouseCursor(*m_cursorArrow);
     }
 }
-// Новый метод для сброса курсора при входе в ImGui
+// 
 void Scene::resetCursor(sf::RenderWindow& window) {
     if (m_cursorArrow) window.setMouseCursor(*m_cursorArrow);
 }
 
-// 1. При добавлении фигуры присваиваем ей ID:
+// 
 void Scene::addShape(std::unique_ptr<IShape> shape) {
     shape->setId(m_nextShapeId++);
     if (shape->getName().empty()) {
@@ -392,6 +390,12 @@ void Scene::handleMousePress(sf::Vector2f mousePos, sf::Vector2i pixelPos, bool 
                 else if (handle == 4) perfectCorner = { m_dragStartGroupBounds.position.x, m_dragStartGroupBounds.position.y + m_dragStartGroupBounds.size.y };
                 m_scaleMouseOffset = mousePos - perfectCorner;
             }
+            else if (handle >= 11 && handle <= 14) {
+                EllipseShape* ellipse = dynamic_cast<EllipseShape*>(shape);
+                if (ellipse) {
+                    m_scaleMouseOffset = mousePos - ellipse->getOBBCorner(handle);
+                }
+            }
             else {
                 m_scaleMouseOffset = { 0.0f, 0.0f };
             }
@@ -515,6 +519,17 @@ void Scene::handleMouseMove(sf::Vector2f mousePos) {
         shape->applyGlobalScale(fixedCorner, Sx, Sy);
     }
     // =========================================================================
+    // 1.5. ЛОКАЛЬНОЕ МАСШТАБИРОВАНИЕ (OBB) ДЛЯ ЭЛЛИПСА
+    // =========================================================================
+    else if (m_draggedHandle >= 11 && m_draggedHandle <= 14 && m_selectedShapes.size() == 1) {
+        EllipseShape* ellipse = dynamic_cast<EllipseShape*>(m_selectedShapes[0]);
+        if (ellipse) {
+            ellipse->restoreState(); // Откат к идеальному снимку начала клика
+            sf::Vector2f effMouse = mousePos - m_scaleMouseOffset; // Снимаем микро-"прыжок" мыши
+            ellipse->resizeFromOBB(m_draggedHandle, effMouse);
+        }
+    }
+    // =========================================================================
     // 2. ПЕРЕТАСКИВАНИЕ ЯКОРЯ
     // =========================================================================
     else if (m_draggedHandle == 5 && m_selectedShapes.size() == 1) {
@@ -594,33 +609,6 @@ void Scene::groupSelected() {
     m_selectedShapes.push_back(groupPtr);
 }
 
-void Scene::ungroupSelected() {
-    if (m_selectedShapes.size() != 1) return;
-    auto* groupShape = m_selectedShapes[0];
-
-    // Проверяем, что выделена именно группа
-    if (groupShape->getType() != "Group") return;
-
-    // Кастуем к классу Group, чтобы получить доступ к детям
-    Group* group = dynamic_cast<Group*>(groupShape);
-    if (!group) return;
-
-    m_selectedShapes.clear();
-
-    // Возвращаем детей обратно на сцену и сразу выделяем их
-    auto& children = group->getChildren();
-    for (auto& child : children) {
-        child->setSelected(true);
-        m_selectedShapes.push_back(child.get());
-        m_shapes.push_back(std::move(child));
-    }
-    children.clear(); // Очищаем контейнер группы
-
-    // Удаляем пустую группу со сцены
-    m_shapes.erase(std::remove_if(m_shapes.begin(), m_shapes.end(),
-        [&](const std::unique_ptr<IShape>& p) { return p.get() == groupShape; }), m_shapes.end());
-}
-// РЕАЛИЗАЦИЯ Z-INDEX
 void Scene::bringToFront(IShape* shape) {
     auto it = std::find_if(m_shapes.begin(), m_shapes.end(), [shape](const auto& ptr) { return ptr.get() == shape; });
     if (it != m_shapes.end()) {
@@ -823,4 +811,100 @@ void Scene::paste() {
     }
 
     m_pasteCount++;
+}
+void Scene::cleanupEmptyGroups() {
+    auto cleanup = [&](auto& self, std::vector<std::unique_ptr<IShape>>& list) -> void {
+        for (size_t i = 0; i < list.size(); ) {
+            if (list[i]->getType() == "Group") {
+                Group* g = dynamic_cast<Group*>(list[i].get());
+                if (g) {
+                    self(self, g->getChildren()); // Рекурсивно чистим вложенные
+
+                    size_t childCount = g->getChildren().size();
+                    // Если группа пуста или в ней всего 1 фигура — распускаем её
+                    if (childCount <= 1) {
+                        if (childCount == 1) {
+                            // Переносим последнюю фигуру на уровень выше
+                            list.push_back(std::move(g->getChildren()[0]));
+                        }
+                        list.erase(list.begin() + i);
+                        continue; // Проверяем тот же индекс снова
+                    }
+                }
+            }
+            i++;
+        }
+        };
+    cleanup(cleanup, m_shapes);
+}
+
+void Scene::ungroupSelected() {
+    if (m_selectedShapes.size() != 1) return;
+    IShape* target = m_selectedShapes[0];
+
+    if (target->getType() != "Group") return;
+    Group* groupPtr = dynamic_cast<Group*>(target);
+
+    auto process = [&](auto& self, std::vector<std::unique_ptr<IShape>>& list) -> bool {
+        for (size_t i = 0; i < list.size(); ++i) {
+            if (list[i].get() == target) {
+                // Извлекаем группу и удаляем её, не ломая итератор
+                std::unique_ptr<IShape> extracted = std::move(list[i]);
+                list.erase(list.begin() + i);
+
+                auto& children = groupPtr->getChildren();
+                for (auto& child : children) {
+                    child->setSelected(true);
+                    m_selectedShapes.push_back(child.get());
+                    list.push_back(std::move(child));
+                }
+                children.clear();
+                return true;
+            }
+            if (list[i]->getType() == "Group") {
+                Group* g = dynamic_cast<Group*>(list[i].get());
+                if (g && self(self, g->getChildren())) return true;
+            }
+        }
+        return false;
+        };
+
+    m_selectedShapes.clear();
+    process(process, m_shapes);
+    cleanupEmptyGroups();
+}
+
+bool Scene::isShapeInGroup(IShape* shape) const {
+    // Если фигура в корневом списке m_shapes — она не в группе
+    for (const auto& s : m_shapes) {
+        if (s.get() == shape) return false;
+    }
+    return true; // Иначе она находится внутри какой-то группы
+}
+void Scene::extractFromGroup(IShape* shape) {
+    if (!isShapeInGroup(shape)) return;
+
+    auto extract = [&](auto& self, std::vector<std::unique_ptr<IShape>>& list) -> bool {
+        for (auto it = list.begin(); it != list.end(); ++it) {
+            if ((*it)->getType() == "Group") {
+                Group* g = dynamic_cast<Group*>(it->get());
+                if (g) {
+                    auto& children = g->getChildren();
+                    auto childIt = std::find_if(children.begin(), children.end(),
+                        [&](const std::unique_ptr<IShape>& p) { return p.get() == shape; });
+
+                    if (childIt != children.end()) {
+                        m_shapes.push_back(std::move(*childIt));
+                        children.erase(childIt);
+                        return true;
+                    }
+                    if (self(self, children)) return true;
+                }
+            }
+        }
+        return false;
+        };
+
+    extract(extract, m_shapes);
+    cleanupEmptyGroups(); // Чистим возможные одиночные/пустые группы
 }

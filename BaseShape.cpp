@@ -26,7 +26,6 @@ bool BaseShape::isSelected() const {
     return m_isSelected;
 }
 
-// 2. Измени геттер/сеттер группы:
 void BaseShape::setGroupId(int id) { m_groupId = id; }
 int BaseShape::getGroupId() const { return m_groupId; }
 
@@ -132,7 +131,7 @@ int BaseShape::getHitHandle(sf::Vector2f mousePos) const {
     return 0;
 }
 
-// Реализация новых методов
+
 sf::FloatRect BaseShape::getBounds() const {
     // В SFML 3 передаем два вектора: позицию и размер
     return sf::FloatRect({ m_position.x - m_size.x, m_position.y - m_size.y },
@@ -156,7 +155,6 @@ void BaseShape::setGlobalFillColor(sf::Color color) {
     updateGeometry();
 }
 void BaseShape::save(std::ostream& out) const {
-    // Заменяем пробелы в имени на _, чтобы не сломать чтение из файла
     std::string safeName = m_name.empty() ? "Unnamed" : m_name;
     std::replace(safeName.begin(), safeName.end(), ' ', '_');
 
@@ -183,11 +181,11 @@ void BaseShape::load(std::istream& in) {
     std::string dummy;
     in >> dummy >> m_id;
     in >> dummy >> m_name;
-    std::replace(m_name.begin(), m_name.end(), '_', ' '); // Возвращаем пробелы
+    std::replace(m_name.begin(), m_name.end(), '_', ' ');
     in >> dummy >> m_position.x >> m_position.y;
     in >> dummy >> m_size.x >> m_size.y;
     in >> dummy >> m_isClosed;
-    in >> dummy >> m_groupId; // Читаем как int
+    in >> dummy >> m_groupId;
 
     in >> dummy >> m_anchorOffset.x >> m_anchorOffset.y;
     in >> dummy >> m_rotation;
@@ -236,7 +234,6 @@ void BaseShape::setAnchorPositionWorld(sf::Vector2f newWorldAnchor) {
     updateGeometry();
 }
 
-// --- НОВОЕ: Вращение мышью за маркер ---
 void BaseShape::setRotationFromMouse(sf::Vector2f mousePos) {
     sf::Vector2f anchorWorld = m_position + m_anchorOffset;
 
@@ -263,7 +260,6 @@ void BaseShape::setRotationFromMouse(sf::Vector2f mousePos) {
 
     setRotation(rotDeg);
 }
-// Добавь этот метод в любое место внутри BaseShape.cpp
 
 void BaseShape::resizeFromBoundingBox(float newWidth, float newHeight) {
     sf::FloatRect oldBounds = getBounds();
@@ -434,7 +430,6 @@ void BaseShape::applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) {
     updateGeometry();
 }
 
-// Правильная реализация статического метода в .cpp файле
 sf::Vector2f BaseShape::rotatePoint(sf::Vector2f point, sf::Vector2f anchor, float angleDeg) {
     float rad = angleDeg * 3.14159265f / 180.0f;
     float cosA = std::cos(rad);

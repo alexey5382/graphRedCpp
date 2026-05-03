@@ -4,7 +4,7 @@
 #include <algorithm> // Для std::min/max
 #include <vector>
 
-// Глобальные переменные для пакетного редактирования углов
+
 static PolygonShape* g_batchShape = nullptr;
 static std::vector<float> g_batchAngles;
 static std::vector<float> g_batchLengths; // <-- НОВОЕ
@@ -20,22 +20,20 @@ PolygonShape::PolygonShape(sf::Vector2f position, sf::Vector2f size, bool isClos
     const std::vector<sf::Vector2f>& basePoints)
     : BaseShape(position, size, isClosed), m_basePoints(basePoints)
 {
-    // Инициализируем массивы цветов и толщин по умолчанию
     size_t segmentsCount = isClosed ? m_basePoints.size() : m_basePoints.size() - 1;
     m_sideColors.resize(segmentsCount, sf::Color::Black);
     m_sideThicknesses.resize(segmentsCount, 2.0f);
     m_fillColor = sf::Color(200, 200, 200, 100);
 
-    // Настраиваем типы геометрии
-    m_fillGeometry.setPrimitiveType(sf::PrimitiveType::Triangles); // <-- СТАЛО
-    m_strokeGeometry.setPrimitiveType(sf::PrimitiveType::Triangles); // Для сторон используем треугольники
-    updateGeometry(); // Сразу рассчитываем вершины при создании
+    m_fillGeometry.setPrimitiveType(sf::PrimitiveType::Triangles); 
+    m_strokeGeometry.setPrimitiveType(sf::PrimitiveType::Triangles);
+    updateGeometry();
 }
 static float getCrossProduct(sf::Vector2f a, sf::Vector2f b, sf::Vector2f c) {
     return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
-// Проверка, находится ли точка P внутри треугольника ABC
+
 static bool isPointInTriangle(sf::Vector2f p, sf::Vector2f a, sf::Vector2f b, sf::Vector2f c) {
     // Вычисляем cross-product для каждой стороны
     float cp1 = getCrossProduct(a, b, p);
@@ -257,7 +255,7 @@ void PolygonShape::updateGeometry() {
         }
     }
 }
-// Отрисовка фигуры на холсте
+
 void PolygonShape::draw(sf::RenderTarget& target) const {
     if (m_isClosed) target.draw(m_fillGeometry);
     target.draw(m_strokeGeometry);
@@ -844,7 +842,6 @@ void PolygonShape::setSideThickness(size_t index, float thickness) {
         updateGeometry();
     }
 }
-// Забирает реальные повернутые границы
 sf::FloatRect PolygonShape::getBounds() const {
     if (m_basePoints.empty()) return BaseShape::getBounds();
     sf::Vector2f anchorWorld = m_position + m_anchorOffset;
@@ -858,10 +855,7 @@ sf::FloatRect PolygonShape::getBounds() const {
     }
     return sf::FloatRect({ minX, minY }, { maxX - minX, maxY - minY });
 }
-//
 
-
-//
 void PolygonShape::drawSelection(sf::RenderTarget& target) const {
     if (!m_isSelected) return;
     BaseShape::drawSelection(target); // рисует синюю рамку и якорь
@@ -983,14 +977,14 @@ void PolygonShape::load(std::istream& in) {
     std::string dummy;
     size_t ptsCount;
     
-    in >> dummy >> ptsCount; // Съедает "PointsCount:"
+    in >> dummy >> ptsCount;
     m_basePoints.resize(ptsCount);
     
     for (size_t i = 0; i < ptsCount; i++) {
         in >> m_basePoints[i].x >> m_basePoints[i].y;
     }
     updateGeometry();
-}// Помощник для вращения
+}
 
 sf::Vector2f PolygonShape::getIntersection(sf::Vector2f p1, sf::Vector2f dir1, sf::Vector2f p2, sf::Vector2f dir2, sf::Vector2f fallback, sf::Vector2f corner) const {
     float cross = dir1.x * dir2.y - dir1.y * dir2.x;
