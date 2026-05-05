@@ -238,8 +238,10 @@ int main() {
         }
 
         if (ImGui::Button("Add Circle", ImVec2(-1, 0))) {
-            scene.addShape(std::make_unique<EllipseShape>(sf::Vector2f(800, 400), sf::Vector2f(100, 100)));
+            // Передаем координаты центра (800, 400), radiusX (100.0f) и radiusY (100.0f)
+            scene.addShape(std::make_unique<EllipseShape>(sf::Vector2f(800, 400), 100.0f, 100.0f));
         }
+
         if (ImGui::Button("Add Trapezoid", ImVec2(-1, 0))) {
             // Точные координаты из твоего C# (MyTrapezoid)
             std::vector<sf::Vector2f> pts = { {-0.6f, -1.f}, {0.6f, -1.f}, {1.f, 1.f}, {-1.f, 1.f} };

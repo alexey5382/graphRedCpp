@@ -3,8 +3,10 @@
 #include "imgui.h"
 #include <algorithm>
 
-EllipseShape::EllipseShape(sf::Vector2f position, sf::Vector2f radius)
-    : BaseShape(position, radius, true), m_pointCount(64)
+EllipseShape::EllipseShape(sf::Vector2f position, float radiusX, float radiusY)
+// Передаем в базу примерный размер (диаметры), но работать будем со своими радиусами
+    : BaseShape(position, { radiusX * 2.0f, radiusY * 2.0f }, true),
+    m_pointCount(64), m_radiusX(radiusX), m_radiusY(radiusY)
 {
     m_sideColors.push_back(sf::Color::Black);
     m_sideThicknesses.push_back(2.0f);
@@ -34,7 +36,8 @@ void EllipseShape::updateGeometry() {
 
     for (size_t i = 0; i < m_pointCount; ++i) {
         float angle = i * 2 * PI / m_pointCount;
-        sf::Vector2f localP(std::cos(angle) * m_size.x, std::sin(angle) * m_size.y);
+        // ИСПОЛЬЗУЕМ НОВЫЕ ПЕРЕМЕННЫЕ РАДИУСОВ
+        sf::Vector2f localP(std::cos(angle) * m_radiusX, std::sin(angle) * m_radiusY);
         sf::Vector2f unrot = m_position + localP;
         pts[i] = BaseShape::rotatePoint(unrot, anchorWorld, m_rotation);
     }
@@ -87,8 +90,8 @@ void EllipseShape::updateGeometry() {
 }
 
 std::pair<sf::Vector2f, sf::Vector2f> EllipseShape::getWorldFoci() const {
-    float rx = std::max(0.001f, m_size.x);
-    float ry = std::max(0.001f, m_size.y);
+    float rx = std::max(0.001f, m_radiusX); // Заменили m_size.x
+    float ry = std::max(0.001f, m_radiusY); // Заменили m_size.y
     float c = std::sqrt(std::abs(rx * rx - ry * ry));
 
     sf::Vector2f f1_local, f2_local;
@@ -119,21 +122,20 @@ void EllipseShape::setFoci(sf::Vector2f f1_world, sf::Vector2f f2_world) {
     sf::Vector2f anchorWorld = m_position + m_anchorOffset;
 
     // При перемещении фокусов сохраняем малую полуось, пересчитываем большую
-    if (c > 0.5f) { // Обновляем угол только если фокусы не слиплись
+    if (c > 0.5f) {
         float angleRad = std::atan2(dy, dx);
-        if (m_size.x >= m_size.y) {
-            m_size.x = std::max(2.0f, std::sqrt(c * c + m_size.y * m_size.y));
+        if (m_radiusX >= m_radiusY) {
+            m_radiusX = std::max(2.0f, std::sqrt(c * c + m_radiusY * m_radiusY));
             m_rotation = angleRad * 180.f / 3.14159265f;
         }
         else {
-            m_size.y = std::max(2.0f, std::sqrt(c * c + m_size.x * m_size.x));
+            m_radiusY = std::max(2.0f, std::sqrt(c * c + m_radiusX * m_radiusX));
             m_rotation = angleRad * 180.f / 3.14159265f - 90.f;
         }
     }
     else {
-        // Если фокусы почти в центре, сохраняем текущий угол и просто меняем радиус
-        if (m_size.x >= m_size.y) m_size.x = std::max(2.0f, std::sqrt(c * c + m_size.y * m_size.y));
-        else m_size.y = std::max(2.0f, std::sqrt(c * c + m_size.x * m_size.x));
+        if (m_radiusX >= m_radiusY) m_radiusX = std::max(2.0f, std::sqrt(c * c + m_radiusY * m_radiusY));
+        else m_radiusY = std::max(2.0f, std::sqrt(c * c + m_radiusX * m_radiusX));
     }
 
     // 2. ВАЖНО: Вычисляем неповёрнутый центр так, чтобы при текущем вращении 
@@ -232,6 +234,7 @@ void EllipseShape::applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy
 
     updateGeometry();
 }
+
 sf::FloatRect EllipseShape::getBounds() const {
     sf::Vector2f anchorWorld = m_position + m_anchorOffset;
 
@@ -241,8 +244,8 @@ sf::FloatRect EllipseShape::getBounds() const {
     float sinR = std::sin(rad);
 
     // Точная аналитическая формула габаритов повернутого эллипса
-    float halfW = std::sqrt(m_size.x * m_size.x * cosR * cosR + m_size.y * m_size.y * sinR * sinR);
-    float halfH = std::sqrt(m_size.x * m_size.x * sinR * sinR + m_size.y * m_size.y * cosR * cosR);
+    float halfW = std::sqrt(m_radiusX * m_radiusX * cosR * cosR + m_radiusY * m_radiusY * sinR * sinR);
+    float halfH = std::sqrt(m_radiusX * m_radiusX * sinR * sinR + m_radiusY * m_radiusY * cosR * cosR);
 
     // Узнаем реальный центр в мире
     sf::Vector2f centerWorld = BaseShape::rotatePoint(m_position, anchorWorld, m_rotation);
@@ -293,11 +296,31 @@ void EllipseShape::setStrokeThickness(float thickness) {
 }
 
 void EllipseShape::save(std::ostream& out) const {
-    BaseShape::save(out);
+    BaseShape::save(out); // Сохраняет базовые вещи (позицию, цвета)
+    out << "Radii: " << m_radiusX << " " << m_radiusY << "\n";
 }
 
 void EllipseShape::load(std::istream& in) {
     BaseShape::load(in);
+
+    std::string dummy;
+    std::streampos oldPos = in.tellg();
+    if (in >> dummy) {
+        if (dummy == "Radii:") {
+            // Новый формат файла
+            in >> m_radiusX >> m_radiusY;
+        }
+        else {
+            // Если это старый файл (до добавления переменных), берем радиусы из m_size
+            m_radiusX = m_size.x;
+            m_radiusY = m_size.y;
+            in.clear();
+            in.seekg(oldPos);
+        }
+    }
+
+    // Синхронизируем базовый размер
+    m_size = { m_radiusX * 2.0f, m_radiusY * 2.0f };
     updateGeometry();
 }
 
@@ -332,8 +355,8 @@ void EllipseShape::showImGuiProperties() {
 
     ImGui::Text("Ellipse Parameters:");
 
-    float rx = m_size.x;
-    float ry = m_size.y;
+    float rx = m_radiusX;
+    float ry = m_radiusY;
     bool sizeChanged = false;
 
     ImGui::SetNextItemWidth(150);
@@ -343,8 +366,9 @@ void EllipseShape::showImGuiProperties() {
     ImGui::Separator();
     ImGui::Checkbox("Show Rotated Bounds (Local Scale)", &m_showOBB);
     if (sizeChanged) {
-        m_size.x = std::max(0.1f, rx);
-        m_size.y = std::max(0.1f, ry);
+        m_radiusX = std::max(0.1f, rx);
+        m_radiusY = std::max(0.1f, ry);
+        m_size = { m_radiusX * 2.0f, m_radiusY * 2.0f }; // Синхронизация
         updateGeometry();
     }
 
@@ -357,6 +381,9 @@ void EllipseShape::showImGuiProperties() {
     if (ImGui::DragFloat2("Focus 1", f1, 1.0f)) fociChanged = true;
     ImGui::SetNextItemWidth(200);
     if (ImGui::DragFloat2("Focus 2", f2, 1.0f)) fociChanged = true;
+    // Показываем глобальные размеры рамки как Read-Only
+    sf::FloatRect bnd = getBounds();
+    ImGui::TextDisabled("AABB Size: %.1f x %.1f", bnd.size.x, bnd.size.y);
 
     if (fociChanged) {
         setFoci({ f1[0], f1[1] }, { f2[0], f2[1] });
@@ -501,8 +528,9 @@ void EllipseShape::drawSelection(sf::RenderTarget& target) const {
     if (m_showOBB) {
         sf::Vector2f centerWorld = BaseShape::rotatePoint(m_position, anchorWorld, m_rotation);
 
-        sf::RectangleShape obb(sf::Vector2f(m_size.x * 2.0f, m_size.y * 2.0f));
-        obb.setOrigin({ m_size.x, m_size.y });
+        // ИСПРАВЛЕНИЕ: Используем m_radiusX и m_radiusY (без умножения на 4)
+        sf::RectangleShape obb(sf::Vector2f(m_radiusX * 2.0f, m_radiusY * 2.0f));
+        obb.setOrigin({ m_radiusX, m_radiusY });
         obb.setPosition(centerWorld);
         obb.setRotation(sf::degrees(m_rotation));
         obb.setFillColor(sf::Color::Transparent);
@@ -583,10 +611,10 @@ sf::Vector2f EllipseShape::getOBBCorner(int handle) const {
     sf::Vector2f anchorWorld = m_position + m_anchorOffset;
     sf::Vector2f centerWorld = BaseShape::rotatePoint(m_position, anchorWorld, m_rotation);
 
-    if (handle == 11) return BaseShape::rotatePoint(centerWorld + sf::Vector2f(-m_size.x, -m_size.y), centerWorld, m_rotation); // TL
-    if (handle == 12) return BaseShape::rotatePoint(centerWorld + sf::Vector2f(m_size.x, -m_size.y), centerWorld, m_rotation);  // TR
-    if (handle == 13) return BaseShape::rotatePoint(centerWorld + sf::Vector2f(m_size.x, m_size.y), centerWorld, m_rotation);   // BR
-    if (handle == 14) return BaseShape::rotatePoint(centerWorld + sf::Vector2f(-m_size.x, m_size.y), centerWorld, m_rotation);  // BL
+    if (handle == 11) return BaseShape::rotatePoint(centerWorld + sf::Vector2f(-m_radiusX, -m_radiusY), centerWorld, m_rotation); // TL
+    if (handle == 12) return BaseShape::rotatePoint(centerWorld + sf::Vector2f(m_radiusX, -m_radiusY), centerWorld, m_rotation);  // TR
+    if (handle == 13) return BaseShape::rotatePoint(centerWorld + sf::Vector2f(m_radiusX, m_radiusY), centerWorld, m_rotation);   // BR
+    if (handle == 14) return BaseShape::rotatePoint(centerWorld + sf::Vector2f(-m_radiusX, m_radiusY), centerWorld, m_rotation);  // BL
     return centerWorld;
 }
 
@@ -600,10 +628,10 @@ void EllipseShape::resizeFromOBB(int handle, sf::Vector2f mouseWorldPos) {
 
     // Ищем локальные координаты фиксированного (противоположного) угла
     sf::Vector2f fixedLocal;
-    if (handle == 11) fixedLocal = centerWorld + sf::Vector2f(m_size.x, m_size.y);  // Тянем TL, фиксируем BR
-    else if (handle == 12) fixedLocal = centerWorld + sf::Vector2f(-m_size.x, m_size.y); // Тянем TR, фиксируем BL
-    else if (handle == 13) fixedLocal = centerWorld + sf::Vector2f(-m_size.x, -m_size.y); // Тянем BR, фиксируем TL
-    else if (handle == 14) fixedLocal = centerWorld + sf::Vector2f(m_size.x, -m_size.y); // Тянем BL, фиксируем TR
+    if (handle == 11) fixedLocal = centerWorld + sf::Vector2f(m_radiusX, m_radiusY);  // Тянем TL, фиксируем BR
+    else if (handle == 12) fixedLocal = centerWorld + sf::Vector2f(-m_radiusX, m_radiusY); // Тянем TR, фиксируем BL
+    else if (handle == 13) fixedLocal = centerWorld + sf::Vector2f(-m_radiusX, -m_radiusY); // Тянем BR, фиксируем TL
+    else if (handle == 14) fixedLocal = centerWorld + sf::Vector2f(m_radiusX, -m_radiusY); // Тянем BL, фиксируем TR
 
     // Центр новой рамки в локальных координатах
     sf::Vector2f newCenterLocal = (fixedLocal + mouseLocal) / 2.0f;
@@ -613,14 +641,33 @@ void EllipseShape::resizeFromOBB(int handle, sf::Vector2f mouseWorldPos) {
     float newRy = std::max(2.0f, std::abs(mouseLocal.y - fixedLocal.y) / 2.0f);
 
     // Переводим новый центр обратно в мировые координаты
-    sf::Vector2f newCenterWorld = BaseShape::rotatePoint(newCenterLocal, centerWorld, m_rotation);
+   sf::Vector2f newCenterWorld = BaseShape::rotatePoint(newCenterLocal, centerWorld, m_rotation);
 
-    // Обновляем m_position и размеры
+    // Обновляем m_position и НАШИ НОВЫЕ РАДИУСЫ
     m_position = BaseShape::rotatePoint(newCenterWorld, anchorWorld, -m_rotation);
-    m_size.x = newRx;
-    m_size.y = newRy;
-
+    m_radiusX = newRx;
+    m_radiusY = newRy;
+    
+    // Синхронизируем базовый размер (эхо для других систем)
+    m_size = { m_radiusX, m_radiusY};
+    
     // Корректируем смещение якоря
     m_anchorOffset = anchorWorld - m_position;
+    updateGeometry();
+}
+
+void EllipseShape::captureState() {
+    BaseShape::captureState(); // Делает снимок позиции и угла
+    m_ellipseSnap.radiusX = m_radiusX; // Делает снимок радиуса X
+    m_ellipseSnap.radiusY = m_radiusY; // Делает снимок радиуса Y
+}
+
+void EllipseShape::restoreState() {
+    BaseShape::restoreState(); // Откатывает позицию и угол
+    m_radiusX = m_ellipseSnap.radiusX; // Откатывает радиус X
+    m_radiusY = m_ellipseSnap.radiusY; // Откатывает радиус Y
+
+    // Обязательно синхронизируем m_size для корректной работы Scene
+    m_size = { m_radiusX * 2.0f, m_radiusY * 2.0f };
     updateGeometry();
 }

@@ -9,10 +9,13 @@ private:
     sf::VertexArray m_fillGeometry;
     sf::VertexArray m_strokeGeometry;
     size_t m_pointCount;
-    bool m_showOBB = true; // <-- Флаг видимости локальной рамки (OBB)
+    bool m_showOBB = false;
+    float m_radiusX;
+    float m_radiusY;
+    struct { float radiusX; float radiusY; } m_ellipseSnap;
 
 public:
-    EllipseShape(sf::Vector2f position, sf::Vector2f radius);
+    EllipseShape(sf::Vector2f position, float radiusX, float radiusY);
 
     void draw(sf::RenderTarget& target) const override;
     bool contains(sf::Vector2f point) const override;
@@ -46,4 +49,6 @@ public:
     // --- МЕТОДЫ ДЛЯ ЛОКАЛЬНОЙ ПОВЕРНУТОЙ РАМКИ (OBB) ---
     sf::Vector2f getOBBCorner(int handle) const;
     void resizeFromOBB(int handle, sf::Vector2f mouseWorldPos);
+    void captureState() override;
+    void restoreState() override;
 };

@@ -22,8 +22,7 @@ std::unique_ptr<IShape> parseShapeRecursive(std::istream& in, int& nextId, bool 
 
     std::unique_ptr<IShape> shape;
     if (typeStr == "[Polygon]") shape = std::make_unique<PolygonShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10), true, std::vector<sf::Vector2f>{});
-    else if (typeStr == "[Circle]") shape = std::make_unique<EllipseShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10));
-    else if (typeStr == "[Group]") shape = std::make_unique<Group>(sf::Vector2f(0, 0));
+    else if (typeStr == "[Circle]" || typeStr == "[Ellipse]") shape = std::make_unique<EllipseShape>(sf::Vector2f(0, 0), 10.0f, 10.0f);    else if (typeStr == "[Group]") shape = std::make_unique<Group>(sf::Vector2f(0, 0));
 
     if (!shape) return nullptr;
 
