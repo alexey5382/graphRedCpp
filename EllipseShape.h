@@ -32,21 +32,16 @@ public:
     void save(std::ostream& out) const override;
     void load(std::istream& in) override;
 
-    // Переопределяем логику базовых точек: теперь это фокусы!
     std::vector<sf::Vector2f> getBasePoints() const override;
     void setBasePoints(const std::vector<sf::Vector2f>& pts) override;
     void applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) override;
 
-    // Специфичные методы эллипса
     std::pair<sf::Vector2f, sf::Vector2f> getWorldFoci() const;
     void setFoci(sf::Vector2f f1_world, sf::Vector2f f2_world);
-    // Переопределение метода для интерактивного перетаскивания фокусов
     void moveVertex(int index, sf::Vector2f delta) override;
-    // Интерактивные точки (фокусы)
     int getHitFocus(sf::Vector2f mousePos) const;
     void moveFocus(int index, sf::Vector2f newWorldPos);
     int getHitHandle(sf::Vector2f mousePos) const override;
-    // --- МЕТОДЫ ДЛЯ ЛОКАЛЬНОЙ ПОВЕРНУТОЙ РАМКИ (OBB) ---
     sf::Vector2f getOBBCorner(int handle) const;
     void resizeFromOBB(int handle, sf::Vector2f mouseWorldPos);
     void captureState() override;

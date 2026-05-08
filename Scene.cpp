@@ -609,20 +609,57 @@ void Scene::groupSelected() {
 }
 
 void Scene::bringToFront(IShape* shape) {
-    auto it = std::find_if(m_shapes.begin(), m_shapes.end(), [shape](const auto& ptr) { return ptr.get() == shape; });
-    if (it != m_shapes.end()) {
-        auto ptr = std::move(*it);
-        m_shapes.erase(it);
-        m_shapes.push_back(std::move(ptr)); // Переносим в конец (будет рисоваться последним = сверху)
-    }
+    // Рекурсивная лямбда для поиска и перемещения
+    auto process = [&](auto& self, std::vector<std::unique_ptr<IShape>>& list) -> bool {
+        // Ищем в текущем списке
+        auto it = std::find_if(list.begin(), list.end(),
+            [shape](const auto& ptr) { return ptr.get() == shape; });
+
+        // Если нашли — перемещаем в конец списка (будет рисоваться последним = сверху)
+        if (it != list.end()) {
+            auto ptr = std::move(*it);
+            list.erase(it);
+            list.push_back(std::move(ptr));
+            return true; // Сигнализируем, что операция успешно завершена
+        }
+
+        // Если не нашли, ныряем в группы
+        for (auto& item : list) {
+            if (item->getType() == "Group") {
+                Group* g = dynamic_cast<Group*>(item.get());
+                if (g && self(self, g->getChildren())) return true; // Выходим, если нашли внутри
+            }
+        }
+        return false;
+        };
+
+    process(process, m_shapes);
 }
 void Scene::sendToBack(IShape* shape) {
-    auto it = std::find_if(m_shapes.begin(), m_shapes.end(), [shape](const auto& ptr) { return ptr.get() == shape; });
-    if (it != m_shapes.end()) {
-        auto ptr = std::move(*it);
-        m_shapes.erase(it);
-        m_shapes.insert(m_shapes.begin(), std::move(ptr)); // Переносим в начало (= сзади всех)
-    }
+    auto process = [&](auto& self, std::vector<std::unique_ptr<IShape>>& list) -> bool {
+        // Ищем в текущем списке
+        auto it = std::find_if(list.begin(), list.end(),
+            [shape](const auto& ptr) { return ptr.get() == shape; });
+
+        // Если нашли — перемещаем в начало списка (будет рисоваться первым = сзади всех)
+        if (it != list.end()) {
+            auto ptr = std::move(*it);
+            list.erase(it);
+            list.insert(list.begin(), std::move(ptr));
+            return true;
+        }
+
+        // Если не нашли, ныряем в группы
+        for (auto& item : list) {
+            if (item->getType() == "Group") {
+                Group* g = dynamic_cast<Group*>(item.get());
+                if (g && self(self, g->getChildren())) return true;
+            }
+        }
+        return false;
+        };
+
+    process(process, m_shapes);
 }
 //
 void Scene::startDrawingMode() {

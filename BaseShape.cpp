@@ -47,7 +47,7 @@ void BaseShape::drawSelection(sf::RenderTarget& target) const {
     sf::RectangleShape bbox(bounds.size);
     bbox.setPosition(bounds.position);
     bbox.setFillColor(sf::Color::Transparent);
-    bbox.setOutlineColor(sf::Color::Cyan);
+    bbox.setOutlineColor(sf::Color(100,100,100,255));
     bbox.setOutlineThickness(1.0f);
     target.draw(bbox);
 

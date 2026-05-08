@@ -354,31 +354,28 @@ void PolygonShape::showImGuiProperties() {
 
     float scale[2] = { bounds.size.x, bounds.size.y };
 
-    ImGui::SetNextItemWidth(150);
-    bool changed1 = ImGui::SliderFloat2("##pScaleSl", scale, 10.0f, 1000.0f);
-    bool act1 = ImGui::IsItemActivated(); bool deact1 = ImGui::IsItemDeactivated();
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(120);
-    bool changed2 = ImGui::InputFloat2("##pScaleInp", scale, "%.1f");
-    bool act2 = ImGui::IsItemActivated(); bool deact2 = ImGui::IsItemDeactivated();
+    ImGui::SetNextItemWidth(200);
+    // Заменили SliderFloat2 и InputFloat2 на один DragFloat2
+    bool changed1 = ImGui::DragFloat2("##pScaleDrag", scale, 1.0f, 5.0f, 10000.0f, "%.1f");
+    bool act1 = ImGui::IsItemActivated();
+    bool deact1 = ImGui::IsItemDeactivated();
 
     ImGui::Text("Relative Scale (%%):");
     float diag = std::sqrt(bounds.size.x * bounds.size.x + bounds.size.y * bounds.size.y);
     float relScale = diag / 1.41421356f;
 
-    ImGui::SetNextItemWidth(150);
-    bool changed3 = ImGui::SliderFloat("##pRelSl", &relScale, 5.0f, 500.0f, "%.1f %%");
-    bool act3 = ImGui::IsItemActivated(); bool deact3 = ImGui::IsItemDeactivated();
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(120);
-    bool changed4 = ImGui::InputFloat("##pRelInp", &relScale, 0.0f, 0.0f, "%.1f");
-    bool act4 = ImGui::IsItemActivated(); bool deact4 = ImGui::IsItemDeactivated();
+    ImGui::SetNextItemWidth(200);
+    // Заменили SliderFloat и InputFloat на один DragFloat
+    bool changed2 = ImGui::DragFloat("##pRelDrag", &relScale, 1.0f, 5.0f, 1000.0f, "%.1f %%");
+    bool act2 = ImGui::IsItemActivated();
+    bool deact2 = ImGui::IsItemDeactivated();
 
-    bool anyAct = act1 || act2 || act3 || act4;
-    bool anyDeact = deact1 || deact2 || deact3 || deact4;
-    bool anyChanged = changed1 || changed2 || changed3 || changed4;
+    // Логика состояний стала намного проще
+    bool anyAct = act1 || act2;
+    bool anyDeact = deact1 || deact2;
+    bool anyChanged = changed1 || changed2;
 
-    // 1. Старт захвата ползунка
+    // 1. Старт захвата мыши или начало ввода
     if (anyAct) {
         isShapeUIScaling = true;
         uiShapeSnap = { m_position, m_size, m_anchorOffset, m_rotation, m_basePoints };
@@ -401,7 +398,8 @@ void PolygonShape::showImGuiProperties() {
         float targetW = scale[0];
         float targetH = scale[1];
 
-        if (changed3 || changed4) {
+        // Если изменили именно относительный масштаб (changed2), пересчитываем абсолютные W и H
+        if (changed2) {
             float targetDiag = relScale * 1.41421356f;
             float baseDiag = std::sqrt(baseW * baseW + baseH * baseH);
             float factor = targetDiag / baseDiag;

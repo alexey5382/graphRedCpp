@@ -4,13 +4,13 @@
 
 class PolygonShape : public BaseShape {
 private:
-    std::vector<sf::Vector2f> m_basePoints; // Нормализованные точки (от -1 до 1)
+    std::vector<sf::Vector2f> m_basePoints;
 
     // Готовая геометрия для отрисовки видеокартой
-    sf::VertexArray m_fillGeometry;   // Заливка (центр)
-    sf::VertexArray m_strokeGeometry; // Обводка (стороны)
+    sf::VertexArray m_fillGeometry;   
+    sf::VertexArray m_strokeGeometry; 
 
-    // Вспомогательный математический метод для расчета пересечения линий (острые углы)
+    
     sf::Vector2f getIntersection(sf::Vector2f p1, sf::Vector2f dir1,
         sf::Vector2f p2, sf::Vector2f dir2,
         sf::Vector2f fallback, sf::Vector2f corner) const;

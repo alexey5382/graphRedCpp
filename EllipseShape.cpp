@@ -4,7 +4,6 @@
 #include <algorithm>
 
 EllipseShape::EllipseShape(sf::Vector2f position, float radiusX, float radiusY)
-// Передаем в базу примерный размер (диаметры), но работать будем со своими радиусами
     : BaseShape(position, { radiusX * 2.0f, radiusY * 2.0f }, true),
     m_pointCount(64), m_radiusX(radiusX), m_radiusY(radiusY)
 {
@@ -296,7 +295,7 @@ void EllipseShape::setStrokeThickness(float thickness) {
 }
 
 void EllipseShape::save(std::ostream& out) const {
-    BaseShape::save(out); // Сохраняет базовые вещи (позицию, цвета)
+    BaseShape::save(out);
     out << "Radii: " << m_radiusX << " " << m_radiusY << "\n";
 }
 
@@ -307,19 +306,15 @@ void EllipseShape::load(std::istream& in) {
     std::streampos oldPos = in.tellg();
     if (in >> dummy) {
         if (dummy == "Radii:") {
-            // Новый формат файла
             in >> m_radiusX >> m_radiusY;
         }
         else {
-            // Если это старый файл (до добавления переменных), берем радиусы из m_size
             m_radiusX = m_size.x;
             m_radiusY = m_size.y;
             in.clear();
             in.seekg(oldPos);
         }
     }
-
-    // Синхронизируем базовый размер
     m_size = { m_radiusX * 2.0f, m_radiusY * 2.0f };
     updateGeometry();
 }
@@ -482,7 +477,7 @@ void EllipseShape::drawSelection(sf::RenderTarget& target) const {
     sf::RectangleShape bbox(bounds.size);
     bbox.setPosition(bounds.position);
     bbox.setFillColor(sf::Color::Transparent);
-    bbox.setOutlineColor(sf::Color::Cyan);
+    bbox.setOutlineColor(sf::Color(100,100,100,255));
     bbox.setOutlineThickness(1.0f);
     target.draw(bbox);
 
@@ -618,7 +613,6 @@ sf::Vector2f EllipseShape::getOBBCorner(int handle) const {
     return centerWorld;
 }
 
-// Идеальное масштабирование по ЛОКАЛЬНЫМ осям (рамка никогда не уплывет!)
 void EllipseShape::resizeFromOBB(int handle, sf::Vector2f mouseWorldPos) {
     sf::Vector2f anchorWorld = m_position + m_anchorOffset;
     sf::Vector2f centerWorld = BaseShape::rotatePoint(m_position, anchorWorld, m_rotation);
