@@ -1,6 +1,7 @@
 #pragma once
 #include <SFML/Graphics.hpp>
 #include <string>
+#include "Export.h"
 struct ShapeSnapshot {
     sf::Vector2f position;
     sf::Vector2f size;
@@ -8,10 +9,15 @@ struct ShapeSnapshot {
     float rotation;
     std::vector<sf::Vector2f> basePoints;
 };
+struct ImGuiContext;
+extern "C" SHAPE_API void InitShapeLibraryUI(ImGuiContext* ctx, void* alloc_func, void* free_func, void* user_data);
 
-class IShape {
+class SHAPE_API IShape {
 public:
+    IShape() = default;
     virtual ~IShape() = default;
+    IShape(const IShape&) = delete;
+    IShape& operator=(const IShape&) = delete;
 
     virtual void draw(sf::RenderTarget& target) const = 0;
     virtual bool contains(sf::Vector2f point) const = 0;

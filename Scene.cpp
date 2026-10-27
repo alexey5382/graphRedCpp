@@ -4,12 +4,11 @@
 #include "EllipseShape.h"
 #include <fstream>
 #include "imgui.h"
-#include <map> // Добавь в самое начало Scene.cpp
+#include <map> 
 #include <sstream>
 #include "Group.h"
 
 Scene::Scene() {
-    // Начальный размер камеры (будет переопределен при старте окна)
     m_view.setCenter({ 600.0f, 400.0f });
     m_view.setSize({ 1200.0f, 800.0f });
 }
@@ -211,16 +210,16 @@ void Scene::draw(sf::RenderTarget& target) const {
         // Вертикальные линии
         for (int x = startX; x <= endX; ++x) {
             float px = x * m_gridSize;
-            sf::Color color = (x == 0) ? sf::Color(255, 100, 100, 150) : sf::Color(100, 100, 100, 30); // Красная ось Y
-            gridVertices.push_back(sf::Vertex({ px, top }, color));
-            gridVertices.push_back(sf::Vertex({ px, bottom }, color));
+            sf::Color color = (x == 0) ? sf::Color(255, 100, 100, 150) : sf::Color(100, 100, 100, 30);
+            gridVertices.push_back({ sf::Vector2f(px, top), color });    // <-- ИСПРАВЛЕНО
+            gridVertices.push_back({ sf::Vector2f(px, bottom), color }); // <-- ИСПРАВЛЕНО
         }
         // Горизонтальные линии
         for (int y = startY; y <= endY; ++y) {
             float py = y * m_gridSize;
-            sf::Color color = (y == 0) ? sf::Color(100, 255, 100, 150) : sf::Color(100, 100, 100, 30); // Зеленая ось X
-            gridVertices.push_back(sf::Vertex({ left, py }, color));
-            gridVertices.push_back(sf::Vertex({ right, py }, color));
+            sf::Color color = (y == 0) ? sf::Color(100, 255, 100, 150) : sf::Color(100, 100, 100, 30);
+            gridVertices.push_back({ sf::Vector2f(left, py), color });   // <-- ИСПРАВЛЕНО
+            gridVertices.push_back({ sf::Vector2f(right, py), color });  // <-- ИСПРАВЛЕНО
         }
         if (!gridVertices.empty()) {
             target.draw(gridVertices.data(), gridVertices.size(), sf::PrimitiveType::Lines);

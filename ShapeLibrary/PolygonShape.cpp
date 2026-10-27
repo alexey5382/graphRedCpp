@@ -1,15 +1,13 @@
 #include "PolygonShape.h"
 #include <cmath>
 #include "imgui.h"
-#include <algorithm> // Для std::min/max
+#include <algorithm>
 #include <vector>
 
 
 static PolygonShape* g_batchShape = nullptr;
 static std::vector<float> g_batchAngles;
-static std::vector<float> g_batchLengths; // <-- НОВОЕ
-// Вспомогательная функция для нормализации вектора (если используешь старый стандарт)
-// В SFML 3 есть встроенные методы, но так надежнее для любой версии
+static std::vector<float> g_batchLengths; 
 sf::Vector2f normalize(sf::Vector2f v) {
     float length = std::sqrt(v.x * v.x + v.y * v.y);
     if (length > 0.001f) return sf::Vector2f(v.x / length, v.y / length);

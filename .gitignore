@@ -1,9 +1,37 @@
-.vs/
-out/
+# Бинарники и артефакты компиляции C++
+*.dll
+*.lib
+*.exp
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.idb
+
+# Папки сборок
+x64/
+x86/
 Debug/
 Release/
-x64/
+out/
+bin/
+obj/
+
+# Служебные файлы Visual Studio и кэши
+.vs/
 *.user
-*.db
+*.suo
+*.userosscache
+*.sln.docstates
 *.opendb
-*.json
+*.db
+
+# Локальные конфиги интерфейса
+imgui.ini
+
+# Локальные временные сохранения сцены
+scene_save.txt
+temp_canvas.json
+
+# Saves
+Saves/

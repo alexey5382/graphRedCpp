@@ -4,18 +4,17 @@
 #include <memory>
 #include <algorithm>
 
-class Group : public BaseShape {
+class SHAPE_API Group : public BaseShape {
 private:
     std::vector<std::unique_ptr<IShape>> m_children;
 
 public:
     Group(sf::Vector2f position);
+    virtual ~Group() = default;
 
-    // Управление детьми
     void addChild(std::unique_ptr<IShape> shape);
     std::vector<std::unique_ptr<IShape>>& getChildren();
 
-    // Реализация интерфейса IShape
     void draw(sf::RenderTarget& target) const override;
     bool contains(sf::Vector2f point) const override;
     void updateGeometry() override;

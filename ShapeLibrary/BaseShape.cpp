@@ -1,5 +1,6 @@
 #include "BaseShape.h"
 #include <iostream>
+#include "imgui.h"
 
 BaseShape::BaseShape(sf::Vector2f position, sf::Vector2f size, bool isClosed)
     : m_position(position), m_size(size), m_isSelected(false), m_isClosed(isClosed),
@@ -75,9 +76,9 @@ void BaseShape::drawSelection(sf::RenderTarget& target) const {
     );
 
     // Линия от якоря к маркеру вращения
-    sf::Vertex line[] = {
-        sf::Vertex(anchorWorld, sf::Color(0, 255, 0, 150)), // Теперь от anchorWorld
-        sf::Vertex(rotHandleWorld, sf::Color(0, 255, 0, 150))
+    sf::Vertex line[2] = {
+        {anchorWorld, sf::Color(0, 255, 0, 150)}, // Теперь от anchorWorld
+        {rotHandleWorld, sf::Color(0, 255, 0, 150)}
     };
     target.draw(line, 2, sf::PrimitiveType::Lines);
 
@@ -455,4 +456,10 @@ void BaseShape::restoreState() {
 IShape* BaseShape::getHitShape(sf::Vector2f mousePos) {
     // Обычная фигура просто возвращает указатель на себя, если клик попал в неё
     return contains(mousePos) ? this : nullptr;
+}
+
+extern "C" SHAPE_API void InitShapeLibraryUI(ImGuiContext* ctx, void* alloc_func, void* free_func, void* user_data) {
+    ImGui::SetCurrentContext(ctx);
+
+    ImGui::SetAllocatorFunctions((ImGuiMemAllocFunc)alloc_func, (ImGuiMemFreeFunc)free_func, user_data);
 }

@@ -2,11 +2,10 @@
 #include "BaseShape.h"
 #include <vector>
 
-class PolygonShape : public BaseShape {
+class SHAPE_API PolygonShape : public BaseShape {
 private:
     std::vector<sf::Vector2f> m_basePoints;
 
-    // Готовая геометрия для отрисовки видеокартой
     sf::VertexArray m_fillGeometry;   
     sf::VertexArray m_strokeGeometry; 
 
@@ -17,16 +16,15 @@ private:
 
 public:
     // Конструктор
+    virtual ~PolygonShape() = default; 
     PolygonShape(sf::Vector2f position, sf::Vector2f size, bool isClosed,
         const std::vector<sf::Vector2f>& basePoints);
 
-    // Реализация чисто виртуальных методов из IShape
     void draw(sf::RenderTarget& target) const override;
     bool contains(sf::Vector2f point) const override;
     void updateGeometry() override;
     void showImGuiProperties() override;
 
-    // Сеттеры для изменения свойств сторон (после их вызова нужно дергать updateGeometry)
     void setSideColor(size_t index, sf::Color color);
     void setSideThickness(size_t index, float thickness);
     sf::FloatRect getBounds() const override;

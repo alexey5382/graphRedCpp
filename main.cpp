@@ -1,49 +1,83 @@
+#pragma comment(lib, "opengl32.lib")
 #include <SFML/Graphics.hpp>
 #include "imgui.h"
 #include "imgui-SFML.h"
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <windows.h>
 
 #include "Scene.h"
-#include "PolygonShape.h"
-#include "EllipseShape.h"
-#include <filesystem>
 #include "Group.h"
+#include <filesystem>
+
+typedef IShape* (*CreateShapeFunc)();
+typedef IShape* (*CreateCustomPolyFunc)(float, float, float, float, bool, const sf::Vector2f*, int);
+
+CreateShapeFunc dll_create_rect = nullptr;
+CreateShapeFunc dll_create_triangle = nullptr;
+CreateShapeFunc dll_create_circle = nullptr;
+CreateShapeFunc dll_create_trapezoid = nullptr;
+CreateShapeFunc dll_create_pentagon = nullptr;
+CreateCustomPolyFunc dll_create_custom_poly = nullptr;
+
+
+HMODULE hShapeLib = nullptr;
 
 namespace fs = std::filesystem;
 int main() {
-    // Создаем окно (синтаксис SFML 3.0)
-    // Получаем разрешение рабочего стола
+
     sf::VideoMode desktop = sf::VideoMode::getDesktopMode();
-    // Создаем окно на весь экран
+    //
     sf::RenderWindow window(desktop, "Graphic Editor (C++ / SFML)", sf::Style::Default, sf::State::Fullscreen);
     window.setFramerateLimit(60);
 
-    // Инициализация интерфейса
+    // 
     if (!ImGui::SFML::Init(window)) return -1;
+    //
+    ImGuiMemAllocFunc alloc_func;
+    ImGuiMemFreeFunc free_func;
+    void* user_data;
+    ImGui::GetAllocatorFunctions(&alloc_func, &free_func, &user_data);
+
+    InitShapeLibraryUI(ImGui::GetCurrentContext(), (void*)alloc_func, (void*)free_func, user_data);
+
     ImGuiIO& io = ImGui::GetIO();
-    ImGui::StyleColorsLight(); // <-- ВКЛЮЧАЕМ СВЕТЛУЮ ТЕМУ IMGUI
-    // Создаем папку для сохранений, если ее нет
+    ImGui::StyleColorsLight();
+
     if (!fs::exists("Saves")) {
         fs::create_directory("Saves");
     }
     std::srand(static_cast<unsigned int>(std::time(nullptr)));
-    // --- Переменные для инструмента "Правильный многоугольник" ---
+    //
     bool showRegularPolygonModal = false;
     int rpSides = 5;
     float rpLength = 50.0f;
     float rpFill[4] = { 0.8f, 0.8f, 0.8f, 0.5f };
     float rpStroke[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     bool rpRandomize = false;
-    // --- Переменные для всплывающих окон сохранения/загрузки ---
+    //
     bool showSaveModal = false;
     bool saveOnlySelected = false;
     char saveFilename[128] = "my_scene";
 
     bool showLoadModal = false;
-    int loadMode = 0; // 0 = Replace, 1 = Add
+    int loadMode = 0;
     std::string selectedLoadFile = "";
+    //======
+    hShapeLib = LoadLibraryA("ShapeLibrary.dll");
+    //======
+    if (hShapeLib) {
+        dll_create_rect = (CreateShapeFunc)GetProcAddress(hShapeLib, "create_rectangle");
+        dll_create_triangle = (CreateShapeFunc)GetProcAddress(hShapeLib, "create_triangle");
+        dll_create_circle = (CreateShapeFunc)GetProcAddress(hShapeLib, "create_circle");
+        dll_create_trapezoid = (CreateShapeFunc)GetProcAddress(hShapeLib, "create_trapezoid");
+        dll_create_pentagon = (CreateShapeFunc)GetProcAddress(hShapeLib, "create_pentagon");
+        dll_create_custom_poly = (CreateCustomPolyFunc)GetProcAddress(hShapeLib, "create_custom_polygon");
+    }
+    else {
+        printf("Failed to load ShapeLibrary.dll\n");
+    }
     // -----------------------------------------
     Scene scene;
     scene.initCursors();
@@ -227,36 +261,26 @@ int main() {
         // ------------------------------------------
         ImGui::Text("Create Shapes:");
 
-        if (ImGui::Button("Add Rectangle", ImVec2(-1, 0))) {
-            std::vector<sf::Vector2f> pts = { {-1, -1}, {1, -1}, {1, 1}, {-1, 1} };
-            scene.addShape(std::make_unique<PolygonShape>(sf::Vector2f(600, 400), sf::Vector2f(100, 100), true, pts));
+        if (ImGui::Button("Add Rectangle", ImVec2(-1, 0)) && dll_create_rect) {
+            scene.addShape(std::unique_ptr<IShape>(dll_create_rect()));
         }
 
-        if (ImGui::Button("Add Triangle", ImVec2(-1, 0))) {
-            std::vector<sf::Vector2f> pts = { {0, -1}, {1, 1}, {-1, 1} };
-            scene.addShape(std::make_unique<PolygonShape>(sf::Vector2f(400, 400), sf::Vector2f(100, 100), true, pts));
+        if (ImGui::Button("Add Triangle", ImVec2(-1, 0)) && dll_create_triangle) {
+            scene.addShape(std::unique_ptr<IShape>(dll_create_triangle()));
         }
 
-        if (ImGui::Button("Add Circle", ImVec2(-1, 0))) {
-            // Передаем координаты центра (800, 400), radiusX (100.0f) и radiusY (100.0f)
-            scene.addShape(std::make_unique<EllipseShape>(sf::Vector2f(800, 400), 100.0f, 100.0f));
+        if (ImGui::Button("Add Circle", ImVec2(-1, 0)) && dll_create_circle) {
+            scene.addShape(std::unique_ptr<IShape>(dll_create_circle()));
         }
 
-        if (ImGui::Button("Add Trapezoid", ImVec2(-1, 0))) {
-            // Точные координаты из твоего C# (MyTrapezoid)
-            std::vector<sf::Vector2f> pts = { {-0.6f, -1.f}, {0.6f, -1.f}, {1.f, 1.f}, {-1.f, 1.f} };
-            scene.addShape(std::make_unique<PolygonShape>(sf::Vector2f(600, 400), sf::Vector2f(100, 100), true, pts));
+        if (ImGui::Button("Add Trapezoid", ImVec2(-1, 0)) && dll_create_trapezoid) {
+            scene.addShape(std::unique_ptr<IShape>(dll_create_trapezoid()));
         }
 
-        if (ImGui::Button("Add Pentagon", ImVec2(-1, 0))) {
-            // Математика из твоего C# (MyPentagon)
-            std::vector<sf::Vector2f> pts(5);
-            for (int i = 0; i < 5; i++) {
-                float angle = (i * 72.0f - 90.0f) * 3.14159265f / 180.0f;
-                pts[i] = { std::cos(angle), std::sin(angle) };
-            }
-            scene.addShape(std::make_unique<PolygonShape>(sf::Vector2f(800, 400), sf::Vector2f(100, 100), true, pts));
+        if (ImGui::Button("Add Pentagon", ImVec2(-1, 0)) && dll_create_pentagon) {
+            scene.addShape(std::unique_ptr<IShape>(dll_create_pentagon()));
         }
+
         if (ImGui::Button("Draw Polyline/Polygon", ImVec2(-1, 0))) {
             scene.startDrawingMode();
         }
@@ -275,7 +299,6 @@ int main() {
         }
         ImGui::PopStyleColor(3); // Обязательно возвращаем цвета обратно!
 
-        ImGui::Separator();
         ImGui::End();
 
         // ==========================================
@@ -566,14 +589,22 @@ int main() {
                 // Размещаем фигуру по центру текущего обзора камеры
                 sf::Vector2f center = scene.getScreenToWorld(sf::Vector2i(winSize.x / 2, winSize.y / 2), window);
 
-                // Создаем фигуру (размер рамки = 2 радиуса)
-                auto poly = std::make_unique<PolygonShape>(center, sf::Vector2f(radius * 2.0f, radius * 2.0f), true, basePoints);
+                if (dll_create_custom_poly) {
+                    // Передаем параметры через функцию DLL
+                    IShape* rawPoly = dll_create_custom_poly(
+                        center.x, center.y,
+                        radius * 2.0f, radius * 2.0f,
+                        true,
+                        basePoints.data(), basePoints.size() // Передаем чистый массив
+                    );
 
-                // Применяем цвета
-                poly->setGlobalFillColor(fill);
-                poly->setGlobalColor(stroke);
+                    // Применяем цвета к полученному указателю
+                    rawPoly->setGlobalFillColor(fill);
+                    rawPoly->setGlobalColor(stroke);
 
-                scene.addShape(std::move(poly));
+                    // Оборачиваем в умный указатель и отдаем сцене
+                    scene.addShape(std::unique_ptr<IShape>(rawPoly));
+                }
 
                 showRegularPolygonModal = false;
             }

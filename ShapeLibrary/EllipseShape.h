@@ -4,7 +4,7 @@
 #include <utility>
 #include <string>
 
-class EllipseShape : public BaseShape {
+class SHAPE_API EllipseShape : public BaseShape {
 private:
     sf::VertexArray m_fillGeometry;
     sf::VertexArray m_strokeGeometry;
@@ -12,10 +12,12 @@ private:
     bool m_showOBB = false;
     float m_radiusX;
     float m_radiusY;
+    bool m_lockGeometry = false; 
     struct { float radiusX; float radiusY; } m_ellipseSnap;
 
 public:
     EllipseShape(sf::Vector2f position, float radiusX, float radiusY);
+    virtual ~EllipseShape() = default;
 
     void draw(sf::RenderTarget& target) const override;
     bool contains(sf::Vector2f point) const override;

@@ -26,8 +26,6 @@ void EllipseShape::updateGeometry() {
 
     sf::Vector2f anchorWorld = m_position + m_anchorOffset;
 
-    // ВАЖНО: Вычисляем реальный центр эллипса в мировых координатах для заливки
-    // Это избавит от "тянучки", так как заливка будет идти от центра фигуры, а не от якоря
     sf::Vector2f centerWorld = BaseShape::rotatePoint(m_position, anchorWorld, m_rotation);
 
     std::vector<sf::Vector2f> pts(m_pointCount);
@@ -35,7 +33,6 @@ void EllipseShape::updateGeometry() {
 
     for (size_t i = 0; i < m_pointCount; ++i) {
         float angle = i * 2 * PI / m_pointCount;
-        // ИСПОЛЬЗУЕМ НОВЫЕ ПЕРЕМЕННЫЕ РАДИУСОВ
         sf::Vector2f localP(std::cos(angle) * m_radiusX, std::sin(angle) * m_radiusY);
         sf::Vector2f unrot = m_position + localP;
         pts[i] = BaseShape::rotatePoint(unrot, anchorWorld, m_rotation);
@@ -64,7 +61,6 @@ void EllipseShape::updateGeometry() {
         inner[i] = pts[i] + normal * thickness;
     }
 
-    // ЗАЛИВКА: Теперь от центра фигуры
     m_fillGeometry[0].position = centerWorld;
     m_fillGeometry[0].color = m_fillColor;
     for (size_t i = 0; i < m_pointCount; ++i) {
@@ -74,7 +70,6 @@ void EllipseShape::updateGeometry() {
     m_fillGeometry[m_pointCount + 1].position = inner[0];
     m_fillGeometry[m_pointCount + 1].color = m_fillColor;
 
-    // ОБВОДКА
     for (size_t i = 0; i < m_pointCount; ++i) {
         size_t next = (i + 1) % m_pointCount;
         size_t idx = i * 6;
@@ -111,47 +106,54 @@ std::pair<sf::Vector2f, sf::Vector2f> EllipseShape::getWorldFoci() const {
 }
 
 void EllipseShape::setFoci(sf::Vector2f f1_world, sf::Vector2f f2_world) {
+    // 1. Вычисляем новый центр и угол между запрошенными точками
     sf::Vector2f center_world = (f1_world + f2_world) / 2.0f;
     float dx = f2_world.x - f1_world.x;
     float dy = f2_world.y - f1_world.y;
-    float c = std::sqrt(dx * dx + dy * dy) / 2.0f;
     float angleRad = std::atan2(dy, dx);
 
-    // 1. Сохраняем текущую позицию якоря в мире
-    sf::Vector2f anchorWorld = m_position + m_anchorOffset;
+    // 2. Якорь всегда прыгает в центр между фокусами
+    m_position = center_world;
+    m_anchorOffset = { 0.0f, 0.0f };
 
-    // При перемещении фокусов сохраняем малую полуось, пересчитываем большую
-    if (c > 0.5f) {
-        float angleRad = std::atan2(dy, dx);
+    // ========================================================
+    // 3. ГЛАВНАЯ ЛОГИКА: МЕНЯЕМ ЛИ МЫ РАДИУСЫ?
+    // ========================================================
+    if (m_lockGeometry) {
+        // ЖЕСТКАЯ БЛОКИРОВКА: Только вращаем фигуру. 
+        // Радиусы m_radiusX и m_radiusY вообще не участвуют в вычислениях и остаются старыми!
         if (m_radiusX >= m_radiusY) {
-            m_radiusX = std::max(2.0f, std::sqrt(c * c + m_radiusY * m_radiusY));
             m_rotation = angleRad * 180.f / 3.14159265f;
         }
         else {
-            m_radiusY = std::max(2.0f, std::sqrt(c * c + m_radiusX * m_radiusX));
             m_rotation = angleRad * 180.f / 3.14159265f - 90.f;
         }
     }
     else {
-        if (m_radiusX >= m_radiusY) m_radiusX = std::max(2.0f, std::sqrt(c * c + m_radiusY * m_radiusY));
-        else m_radiusY = std::max(2.0f, std::sqrt(c * c + m_radiusX * m_radiusX));
+        // СТАНДАРТНЫЙ РЕЖИМ: Эллипс сплющивается/растягивается
+        float c = std::sqrt(dx * dx + dy * dy) / 2.0f;
+        if (c > 0.5f) {
+            if (m_radiusX >= m_radiusY) {
+                m_radiusX = std::max(2.0f, std::sqrt(c * c + m_radiusY * m_radiusY));
+                m_rotation = angleRad * 180.f / 3.14159265f;
+            }
+            else {
+                m_radiusY = std::max(2.0f, std::sqrt(c * c + m_radiusX * m_radiusX));
+                m_rotation = angleRad * 180.f / 3.14159265f - 90.f;
+            }
+        }
+        else {
+            if (m_radiusX >= m_radiusY) m_radiusX = std::max(2.0f, std::sqrt(c * c + m_radiusY * m_radiusY));
+            else m_radiusY = std::max(2.0f, std::sqrt(c * c + m_radiusX * m_radiusX));
+        }
     }
 
-    // 2. ВАЖНО: Вычисляем неповёрнутый центр так, чтобы при текущем вращении 
-    // вокруг якоря, визуальный центр оказался в нужной точке center_world.
-    m_position = BaseShape::rotatePoint(center_world, anchorWorld, -m_rotation);
+    // 4. Синхронизируем базовый размер для рамки выделения
+    m_size = { m_radiusX * 2.0f, m_radiusY * 2.0f };
 
-    // 3. Корректируем смещение якоря, чтобы он остался на своем месте
-    m_anchorOffset = anchorWorld - m_position;
-
+    // 5. Перестраиваем геометрию
     updateGeometry();
 }
-
-std::vector<sf::Vector2f> EllipseShape::getBasePoints() const {
-    auto foci = getWorldFoci();
-    return { foci.first, foci.second };
-}
-
 void EllipseShape::setBasePoints(const std::vector<sf::Vector2f>& pts) {
     // ПУСТО! Это ключевой фикс.
     // BaseShape::restoreState вызывает этот метод. Если здесь вызвать setFoci(), 
@@ -258,23 +260,16 @@ void EllipseShape::draw(sf::RenderTarget& target) const {
     if (m_isClosed) target.draw(m_fillGeometry);
     target.draw(m_strokeGeometry);
 
-    // Отрисовка фокусов только если фигура выделена
     if (m_isSelected) {
         auto foci = getWorldFoci();
         sf::CircleShape handle(5.0f);
         handle.setOutlineColor(sf::Color::Black);
         handle.setOutlineThickness(1.0f);
         handle.setOrigin({ 5.0f, 5.0f });
-
-        // Узнаем, выделен ли сейчас какой-то из фокусов
         int selectedV = getSelectedVertex();
-
-        // Рисуем Фокус 1 (Красный, если выделен, иначе Желтый)
         handle.setPosition(foci.first);
         handle.setFillColor((selectedV == 0) ? sf::Color::Red : sf::Color::Yellow);
         target.draw(handle);
-
-        // Рисуем Фокус 2
         handle.setPosition(foci.second);
         handle.setFillColor((selectedV == 1) ? sf::Color::Red : sf::Color::Yellow);
         target.draw(handle);
@@ -367,24 +362,34 @@ void EllipseShape::showImGuiProperties() {
         updateGeometry();
     }
 
+    ImGui::Separator();
+    // --- НОВАЯ КНОПКА ---
+    ImGui::Checkbox("Lock Geometry", &m_lockGeometry);
+
     auto foci = getWorldFoci();
-    float f1[2] = { foci.first.x, foci.first.y };
-    float f2[2] = { foci.second.x, foci.second.y };
-    bool fociChanged = false;
+    // Используем статические переменные для временного хранения ввода
+    static float nextF1[2] = { 0, 0 }, nextF2[2] = { 0, 0 };
+    static int lastId = -1;
 
-    ImGui::SetNextItemWidth(200);
-    if (ImGui::DragFloat2("Focus 1", f1, 1.0f)) fociChanged = true;
-    ImGui::SetNextItemWidth(200);
-    if (ImGui::DragFloat2("Focus 2", f2, 1.0f)) fociChanged = true;
-    // Показываем глобальные размеры рамки как Read-Only
-    sf::FloatRect bnd = getBounds();
-    ImGui::TextDisabled("AABB Size: %.1f x %.1f", bnd.size.x, bnd.size.y);
+    // Обновляем буферы при смене выделенной фигуры
+    if (lastId != getId()) {
+        nextF1[0] = foci.first.x; nextF1[1] = foci.first.y;
+        nextF2[0] = foci.second.x; nextF2[1] = foci.second.y;
+        lastId = getId();
+    }
 
-    if (fociChanged) {
-        setFoci({ f1[0], f1[1] }, { f2[0], f2[1] });
+    ImGui::Text("Set Foci Coordinates:");
+    ImGui::DragFloat2("New F1", nextF1, 1.0f);
+    ImGui::DragFloat2("New F2", nextF2, 1.0f);
+
+    if (ImGui::Button("Apply Both Foci", ImVec2(-1, 0))) {
+        setFoci({ nextF1[0], nextF1[1] }, { nextF2[0], nextF2[1] });
     }
 
     ImGui::Separator();
+    // Отображение текущих позиций (для справки)
+    ImGui::TextDisabled("Current F1: %.1f, %.1f", foci.first.x, foci.first.y);
+    ImGui::TextDisabled("Current F2: %.1f, %.1f", foci.second.x, foci.second.y);
     ImGui::Text("Appearance");
 
     if (ImGui::Button("Randomize Colors & Thickness", ImVec2(-1, 0))) {
@@ -430,42 +435,36 @@ void EllipseShape::showImGuiProperties() {
 }
 void EllipseShape::moveVertex(int index, sf::Vector2f delta) {
     auto foci = getWorldFoci();
+    sf::Vector2f f1 = foci.first;
+    sf::Vector2f f2 = foci.second;
 
-    // Твоя сцена передает index = 0 (если handle был 100) или index = 1 (если handle был 101)
-    if (index == 0) {
-        setFoci(foci.first + delta, foci.second);
+    if (index == 0) f1 += delta;
+    else if (index == 1) f2 += delta;
+
+    if (m_lockGeometry) {
+        float dx = f2.x - f1.x;
+        float dy = f2.y - f1.y;
+        float angleRad = std::atan2(dy, dx);
+
+        // Обновляем угол
+        m_rotation = (m_radiusX >= m_radiusY) ?
+            (angleRad * 180.f / 3.14159265f) :
+            (angleRad * 180.f / 3.14159265f - 90.f);
+
+        // Центрируем фигуру и сбрасываем смещение якоря
+        m_position = (f1 + f2) / 2.0f;
+        m_anchorOffset = { 0.0f, 0.0f };
+
+        updateGeometry();
     }
-    else if (index == 1) {
-        setFoci(foci.first, foci.second + delta);
+    else {
+        setFoci(f1, f2);
     }
 }
-int EllipseShape::getHitFocus(sf::Vector2f mousePos) const {
-    if (!m_isSelected) return -1; // Проверяем только если эллипс выделен
-
-    auto foci = getWorldFoci();
-    float hitRadius = 8.0f; // Радиус захвата мышкой (чуть больше самого кружка для удобства)
-
-    // Функция расстояния
-    auto dist = [](sf::Vector2f a, sf::Vector2f b) {
-        return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
-        };
-
-    if (dist(mousePos, foci.first) <= hitRadius) return 0; // Первый фокус
-    if (dist(mousePos, foci.second) <= hitRadius) return 1; // Второй фокус
-
-    return -1; // Никуда не попали
-}
-
 void EllipseShape::moveFocus(int index, sf::Vector2f newWorldPos) {
     auto foci = getWorldFoci();
-
-    // Если тянем первый фокус (0), второй остается на месте, и наоборот
-    if (index == 0) {
-        setFoci(newWorldPos, foci.second);
-    }
-    else if (index == 1) {
-        setFoci(foci.first, newWorldPos);
-    }
+    if (index == 0) moveVertex(0, newWorldPos - foci.first);
+    else if (index == 1) moveVertex(1, newWorldPos - foci.second);
 }
 void EllipseShape::drawSelection(sf::RenderTarget& target) const {
     if (!m_isSelected) return;
@@ -493,9 +492,9 @@ void EllipseShape::drawSelection(sf::RenderTarget& target) const {
     );
 
     // Линия от якоря к маркеру вращения
-    sf::Vertex line[] = {
-        sf::Vertex(anchorWorld, sf::Color(0, 255, 0, 150)),
-        sf::Vertex(rotHandleWorld, sf::Color(0, 255, 0, 150))
+    sf::Vertex line[2] = {
+        {anchorWorld, sf::Color(0, 255, 0, 150)},
+        {rotHandleWorld, sf::Color(0, 255, 0, 150)}
     };
     target.draw(line, 2, sf::PrimitiveType::Lines);
 
@@ -664,4 +663,8 @@ void EllipseShape::restoreState() {
     // Обязательно синхронизируем m_size для корректной работы Scene
     m_size = { m_radiusX * 2.0f, m_radiusY * 2.0f };
     updateGeometry();
+}
+std::vector<sf::Vector2f> EllipseShape::getBasePoints() const {
+    auto foci = getWorldFoci();
+    return { foci.first, foci.second };
 }
