@@ -114,7 +114,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)imgui;$(SolutionDir)imgui;D:\Users\Bsuir\2y\4s\ootpisp\Lab3\ShapeLibrary;C:\SMFL\SFML-3.0.2\include;D:\Users\Bsuir\2y\4s\ootpisp\ShapeLibrary</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)external;$(ProjectDir)imgui;$(SolutionDir)imgui;D:\Users\Bsuir\2y\4s\ootpisp\Lab3\ShapeLibrary;C:\SMFL\SFML-3.0.2\include;D:\Users\Bsuir\2y\4s\ootpisp\ShapeLibrary</AdditionalIncludeDirectories>
       <SupportJustMyCode>false</SupportJustMyCode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
@@ -135,7 +135,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)imgui;$(SolutionDir)imgui;D:\Users\Bsuir\2y\4s\ootpisp\Lab3\ShapeLibrary;;D:\Users\Bsuir\2y\4s\ootpisp\ShapeLibrary</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)external;$(ProjectDir)imgui;$(SolutionDir)imgui;D:\Users\Bsuir\2y\4s\ootpisp\Lab3\ShapeLibrary;;D:\Users\Bsuir\2y\4s\ootpisp\ShapeLibrary</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -148,6 +148,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AIGenerator.cpp" />
     <ClCompile Include="imgui\imgui-SFML.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
@@ -157,6 +158,7 @@
     <ClCompile Include="Scene.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AIGenerator.h" />
     <ClInclude Include="imgui\imconfig.h" />
     <ClInclude Include="imgui\imgui-SFML.h" />
     <ClInclude Include="imgui\imgui-SFML_export.h" />

@@ -1038,3 +1038,36 @@ void PolygonShape::applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy
     m_anchorOffset = newAnchorWorld - m_position;
     updateGeometry();
 }
+
+//new json
+nlohmann::json PolygonShape::toJson() const {
+    auto j = BaseShape::toJson();
+    j["basePoints"] = nlohmann::json::array();
+    for (const auto& p : m_basePoints) {
+        j["basePoints"].push_back({ {"x", p.x}, {"y", p.y} });
+    }
+    return j;
+}
+
+void PolygonShape::fromJson(const nlohmann::json& j) {
+    BaseShape::fromJson(j);
+    m_basePoints.clear();
+    if (j.contains("basePoints") && j["basePoints"].is_array()) {
+        for (const auto& p : j["basePoints"]) {
+            m_basePoints.push_back({ p.value("x", 0.0f), p.value("y", 0.0f) });
+        }
+    }
+
+    // Защита: если ИИ прислал 1 цвет/толщину или не прислал их вовсе, растягиваем на все стороны
+    size_t n = m_basePoints.size();
+    size_t segmentsCount = m_isClosed ? n : (n > 0 ? n - 1 : 0);
+    sf::Color defaultStroke = m_sideColors.empty() ? sf::Color::Black : m_sideColors[0];
+    float defaultThick = m_sideThicknesses.empty() ? 2.0f : m_sideThicknesses[0];
+
+    if (m_sideColors.size() < segmentsCount)
+        m_sideColors.resize(segmentsCount, defaultStroke);
+    if (m_sideThicknesses.size() < segmentsCount)
+        m_sideThicknesses.resize(segmentsCount, defaultThick);
+
+    updateGeometry();
+}

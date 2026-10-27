@@ -6,10 +6,13 @@
 #include <cstdlib>
 #include <ctime>
 #include <windows.h>
+#include "json/json.hpp"
+#include "AiGenerator.h"
 
 #include "Scene.h"
 #include "Group.h"
 #include <filesystem>
+#include <fstream>
 
 typedef IShape* (*CreateShapeFunc)();
 typedef IShape* (*CreateCustomPolyFunc)(float, float, float, float, bool, const sf::Vector2f*, int);
@@ -23,6 +26,7 @@ CreateCustomPolyFunc dll_create_custom_poly = nullptr;
 
 
 HMODULE hShapeLib = nullptr;
+using json = nlohmann::json;
 
 namespace fs = std::filesystem;
 int main() {
@@ -34,6 +38,39 @@ int main() {
 
     // 
     if (!ImGui::SFML::Init(window)) return -1;
+    // --- БЕЗОПАСНЫЙ БУФЕР ОБМЕНА WINDOWS ДЛЯ IMGUI ---
+    ImGuiIO& io = ImGui::GetIO();
+
+    io.GetClipboardTextFn = [](void*) -> const char* {
+        static std::string s_clipboardData;
+        s_clipboardData.clear();
+
+        if (!OpenClipboard(nullptr)) return nullptr;
+
+        HANDLE hData = GetClipboardData(CF_TEXT);
+        if (hData) {
+            if (char* pszText = static_cast<char*>(GlobalLock(hData))) {
+                s_clipboardData = pszText;
+                GlobalUnlock(hData);
+            }
+        }
+        CloseClipboard();
+        return s_clipboardData.empty() ? nullptr : s_clipboardData.c_str();
+        };
+
+    io.SetClipboardTextFn = [](void*, const char* text) {
+        if (!text || !OpenClipboard(nullptr)) return;
+        EmptyClipboard();
+
+        size_t len = strlen(text) + 1;
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
+        if (hMem) {
+            memcpy(GlobalLock(hMem), text, len);
+            GlobalUnlock(hMem);
+            SetClipboardData(CF_TEXT, hMem);
+        }
+        CloseClipboard();
+        };
     //
     ImGuiMemAllocFunc alloc_func;
     ImGuiMemFreeFunc free_func;
@@ -42,8 +79,11 @@ int main() {
 
     InitShapeLibraryUI(ImGui::GetCurrentContext(), (void*)alloc_func, (void*)free_func, user_data);
 
-    ImGuiIO& io = ImGui::GetIO();
     ImGui::StyleColorsLight();
+    
+    io.Fonts->Clear();
+    io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/arial.ttf", 16.0f, nullptr, io.Fonts->GetGlyphRangesCyrillic());
+    ImGui::SFML::UpdateFontTexture();
 
     if (!fs::exists("Saves")) {
         fs::create_directory("Saves");
@@ -85,10 +125,24 @@ int main() {
     sf::Clock deltaClock;
     scene.resetView(sf::Vector2f(static_cast<float>(window.getSize().x), static_cast<float>(window.getSize().y)));
 
+    // --- ПЕРЕМЕННЫЕ ДЛЯ ИИ-ГЕНЕРАТОРА ---
+    // Перед циклом while (window.isOpen()):
+    AiGenerator aiGenerator;
+    bool showAiModal = false;
+    static char aiPromptBuffer[1024] = "House with a red roof, a chimney, a door and two windows";
+    static char aiApiKeyBuffer[256] = { 0 }; // 256 байт с гарантированным обнулением
+    std::string aiStatusMessage = "";
+
+    // Автоматическая загрузка ключа из файла, если он уже был сохранен
+    std::ifstream keyFile("api_key.txt");
+    if (keyFile) {
+        keyFile >> aiApiKeyBuffer;
+    }
+
     while (window.isOpen()) {
         // ==========================================
-        // ГОРЯЧИЕ КЛАВИШИ (Ctrl+C, Ctrl+V, Del)
-        // ==========================================
+         // ГОРЯЧИЕ КЛАВИШИ (Ctrl+C, Ctrl+V, Del)
+         // ==========================================
         static bool cPressed = false;
         static bool vPressed = false;
         static bool delPressed = false;
@@ -96,23 +150,33 @@ int main() {
         bool isCtrl = sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LControl) ||
             sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RControl);
 
-        // Копирование (Ctrl + C)
-        if (isCtrl && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C)) {
-            if (!cPressed) { scene.copySelected(); cPressed = true; }
-        }
-        else { cPressed = false; }
+        // Если фокус НЕ в текстовом поле ввода — управляем фигурами на холсте
+        if (!io.WantTextInput) {
+            // Копирование (Ctrl + C)
+            if (isCtrl && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C)) {
+                if (!cPressed) { scene.copySelected(); cPressed = true; }
+            }
+            else { cPressed = false; }
 
-        // Вставка (Ctrl + V)
-        if (isCtrl && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V)) {
-            if (!vPressed) { scene.paste(); vPressed = true; }
-        }
-        else { vPressed = false; }
+            // Вставка (Ctrl + V)
+            if (isCtrl && sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V)) {
+                if (!vPressed) { scene.paste(); vPressed = true; }
+            }
+            else { vPressed = false; }
 
-        // Удаление (Delete) - Заодно добавим хоткей на удаление!
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Delete)) {
-            if (!delPressed) { scene.deleteSelected(); delPressed = true; }
+            // Удаление (Delete)
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Delete)) {
+                if (!delPressed) { scene.deleteSelected(); delPressed = true; }
+            }
+            else { delPressed = false; }
         }
-        else { delPressed = false; }
+        else {
+            cPressed = false;
+            vPressed = false;
+            delPressed = false;
+        }
+
+       
         while (const std::optional event = window.pollEvent()) {
             ImGui::SFML::ProcessEvent(window, *event);
             // Получаем мировые координаты мыши
@@ -288,6 +352,16 @@ int main() {
             showRegularPolygonModal = true;
             rpRandomize = false; // Сбрасываем галочку при открытии
         }
+        //AI
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.4f, 0.2f, 0.8f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.3f, 0.9f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.3f, 0.1f, 0.7f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+        if (ImGui::Button("AI Generate Object...", ImVec2(-1, 0))) {
+            showAiModal = true;
+            aiStatusMessage = "";
+        }
+        ImGui::PopStyleColor(4);
         
 
         // --- НОВАЯ КНОПКА ВЫХОДА ---
@@ -615,6 +689,104 @@ int main() {
         }
         ImGui::End();
         // ==========================================
+
+
+        // ==========================================
+        //ОКНО ИИ-ГЕНЕРАТОРА
+        // ==========================================
+        // Проверяем, завершил ли фоновый поток генерацию
+        std::string aiJson, aiError;
+        if (aiGenerator.consumeResult(aiJson, aiError)) {
+            if (aiError.empty()) {
+                if (scene.loadFromJsonString(aiJson, true)) {
+                    showAiModal = false;
+                    aiStatusMessage = "";
+                }
+                else {
+                    aiStatusMessage = "Error: Failed to parse shapes from AI JSON.";
+                }
+            }
+            else {
+                aiStatusMessage = aiError;
+            }
+        }
+
+        // 4. Окно ГЕНЕРАЦИИ ЧЕРЕЗ ИИ
+        if (showAiModal) ImGui::OpenPopup("AI Object Generator##modal");
+
+        ImGui::SetNextWindowPos(ImVec2(winSize.x / 2.0f, winSize.y / 2.0f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("AI Object Generator##modal", &showAiModal, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Describe the object or scene you want to create:");
+            ImGui::InputTextMultiline("##aiPrompt", aiPromptBuffer, IM_ARRAYSIZE(aiPromptBuffer), ImVec2(450, 80));
+
+            ImGui::Spacing();
+            ImGui::Text("OpenRouter API Key:");
+            ImGui::SetNextItemWidth(350);
+            ImGui::InputText("##apiKey", aiApiKeyBuffer, IM_ARRAYSIZE(aiApiKeyBuffer), ImGuiInputTextFlags_Password);
+
+            ImGui::SameLine();
+            // Кнопка прямой вставки из буфера обмена Windows
+            if (ImGui::Button("Paste")) {
+                if (OpenClipboard(nullptr)) {
+                    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+                    if (hData) {
+                        if (const wchar_t* wstr = static_cast<const wchar_t*>(GlobalLock(hData))) {
+                            WideCharToMultiByte(CP_UTF8, 0, wstr, -1, aiApiKeyBuffer, IM_ARRAYSIZE(aiApiKeyBuffer), nullptr, nullptr);
+                            GlobalUnlock(hData);
+                        }
+                    }
+                    CloseClipboard();
+                }
+            }
+
+            ImGui::SameLine();
+            // Кнопка сохранения в локальный файл
+            if (ImGui::Button("Save Key")) {
+                std::ofstream kfile("api_key.txt");
+                if (kfile) {
+                    kfile << aiApiKeyBuffer;
+                    aiStatusMessage = "Key saved to api_key.txt!";
+                }
+            }
+
+            ImGui::TextDisabled("Get free key at openrouter.ai/settings/keys");
+            ImGui::Separator();
+
+            bool isGenerating = aiGenerator.isLoading();
+            ImGui::BeginDisabled(isGenerating);
+
+            if (ImGui::Button(isGenerating ? "Generating..." : "Generate", ImVec2(140, 0))) {
+                if (strlen(aiApiKeyBuffer) == 0) {
+                    // Пробуем прочитать из api_key.txt если поле пустое
+                    std::ifstream kfile("api_key.txt");
+                    if (kfile) kfile >> aiApiKeyBuffer;
+                }
+
+                if (strlen(aiApiKeyBuffer) == 0) {
+                    aiStatusMessage = "Please enter or paste your API key!";
+                }
+                else {
+                    aiStatusMessage = "Contacting OpenRouter AI... Please wait.";
+                    sf::Vector2f viewCenter = scene.getScreenToWorld(sf::Vector2i(winSize.x / 2, winSize.y / 2), window);
+                    aiGenerator.generateAsync(aiPromptBuffer, viewCenter, aiApiKeyBuffer);
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                showAiModal = false;
+            }
+            ImGui::EndDisabled();
+
+            if (!aiStatusMessage.empty()) {
+                ImGui::Spacing();
+                ImGui::TextWrapped("%s", aiStatusMessage.c_str());
+            }
+
+            ImGui::EndPopup();
+        }
+
+        // ==========================================
+
 
 
         // Отрисовка

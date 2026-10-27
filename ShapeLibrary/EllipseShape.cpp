@@ -668,3 +668,19 @@ std::vector<sf::Vector2f> EllipseShape::getBasePoints() const {
     auto foci = getWorldFoci();
     return { foci.first, foci.second };
 }
+
+//new json
+nlohmann::json EllipseShape::toJson() const {
+    auto j = BaseShape::toJson();
+    j["radiusX"] = m_radiusX;
+    j["radiusY"] = m_radiusY;
+    return j;
+}
+
+void EllipseShape::fromJson(const nlohmann::json& j) {
+    BaseShape::fromJson(j);
+    if (j.contains("radiusX")) m_radiusX = j["radiusX"].get<float>();
+    if (j.contains("radiusY")) m_radiusY = j["radiusY"].get<float>();
+    m_size = { m_radiusX * 2.0f, m_radiusY * 2.0f };
+    updateGeometry();
+}

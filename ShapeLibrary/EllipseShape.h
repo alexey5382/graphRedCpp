@@ -48,4 +48,8 @@ public:
     void resizeFromOBB(int handle, sf::Vector2f mouseWorldPos);
     void captureState() override;
     void restoreState() override;
+
+    //new json
+    nlohmann::json toJson() const override;
+    void fromJson(const nlohmann::json& j) override;
 };

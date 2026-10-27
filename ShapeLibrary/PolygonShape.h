@@ -41,4 +41,9 @@ public:
     std::vector<sf::Vector2f> getBasePoints() const override { return m_basePoints; }
     void setBasePoints(const std::vector<sf::Vector2f>& pts) override { m_basePoints = pts; updateGeometry(); }
     void applyGlobalScale(sf::Vector2f fixedCorner, float Sx, float Sy) override;
+
+    //new json
+    nlohmann::json toJson() const override;
+    void fromJson(const nlohmann::json& j) override;
+
 };

@@ -7,6 +7,9 @@
 #include <map> 
 #include <sstream>
 #include "Group.h"
+#include "json/json.hpp"
+#include <windows.h>
+
 
 Scene::Scene() {
     m_view.setCenter({ 600.0f, 400.0f });
@@ -754,27 +757,8 @@ void Scene::selectShape(int id) {
         }
     }
 }// --- НОВЫЙ МЕТОД СОХРАНЕНИЯ ТОЛЬКО ВЫДЕЛЕННОГО ---
-void Scene::saveToFile(const std::string& filename) const {
-    std::ofstream out(filename);
-    if (!out) return;
 
-    out << "ShapesCount: " << m_shapes.size() << "\n";
-    for (const auto& shape : m_shapes) {
-        out << "[" << shape->getType() << "]\n";
-        shape->save(out);
-    }
-}
 
-void Scene::saveSelectedToFile(const std::string& filename) const {
-    std::ofstream out(filename);
-    if (!out) return;
-
-    out << "ShapesCount: " << m_selectedShapes.size() << "\n";
-    for (const auto* shape : m_selectedShapes) {
-        out << "[" << shape->getType() << "]\n";
-        shape->save(out);
-    }
-}
 
 void Scene::copySelected() {
     if (m_selectedShapes.empty()) return;
@@ -794,29 +778,6 @@ void Scene::copySelected() {
 // ==========================================
 // ВСТАВКА ИЗ БУФЕРА ОБМЕНА
 // ==========================================
-void Scene::loadFromFile(const std::string& filename, bool merge) {
-    std::ifstream in(filename);
-    if (!in) return;
-
-    if (!merge) clear(); // Очищаем сцену, если это не слияние
-
-    std::string dummy;
-    size_t shapeCount = 0;
-
-    // Считываем заголовок "ShapesCount: N"
-    if (!(in >> dummy >> shapeCount)) return;
-
-    for (size_t i = 0; i < shapeCount; ++i) {
-        auto shape = parseShapeRecursive(in, m_nextShapeId, merge);
-        if (shape) {
-            if (merge) {
-                shape->setSelected(true); // При слиянии выделяем загруженное
-                m_selectedShapes.push_back(shape.get());
-            }
-            m_shapes.push_back(std::move(shape));
-        }
-    }
-}
 
 void Scene::paste() {
     if (m_clipboard.empty()) return;
@@ -942,4 +903,148 @@ void Scene::extractFromGroup(IShape* shape) {
 
     extract(extract, m_shapes);
     cleanupEmptyGroups(); // Чистим возможные одиночные/пустые группы
+}
+
+//new json
+// Фабричный метод восстановления фигуры из JSON-объекта
+std::unique_ptr<IShape> Scene::createShapeFromJson(const nlohmann::json& j, int& nextId, bool merge) {
+    std::string type = j.value("type", "");
+    std::unique_ptr<IShape> shape = nullptr;
+
+    if (type == "Polygon") {
+        shape = std::make_unique<PolygonShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10), true, std::vector<sf::Vector2f>{});
+    }
+    else if (type == "Ellipse" || type == "Circle") {
+        shape = std::make_unique<EllipseShape>(sf::Vector2f(0, 0), 10.0f, 10.0f);
+    }
+    else if (type == "Group") {
+        shape = std::make_unique<Group>(sf::Vector2f(0, 0));
+    }
+
+    if (!shape) return nullptr;
+
+    shape->fromJson(j);
+
+    if (merge) {
+        shape->setId(nextId++);
+    }
+    else if (shape->getId() >= nextId) {
+        nextId = shape->getId() + 1;
+    }
+
+    return shape;
+}
+
+void Scene::saveToFile(const std::string& filename) const {
+    std::ofstream out(filename);
+    if (!out) return;
+
+    nlohmann::json root;
+    root["version"] = 1;
+    root["shapes"] = nlohmann::json::array();
+
+    for (const auto& shape : m_shapes) {
+        root["shapes"].push_back(shape->toJson());
+    }
+
+    out << root.dump(4); // dump(4) форматирует красивый JSON с отступами
+}
+
+void Scene::saveSelectedToFile(const std::string& filename) const {
+    std::ofstream out(filename);
+    if (!out) return;
+
+    nlohmann::json root;
+    root["version"] = 1;
+    root["shapes"] = nlohmann::json::array();
+
+    for (const auto* shape : m_selectedShapes) {
+        root["shapes"].push_back(shape->toJson());
+    }
+
+    out << root.dump(4);
+}
+
+void Scene::loadFromFile(const std::string& filename, bool merge) {
+    std::ifstream in(filename);
+    if (!in) return;
+
+    nlohmann::json root;
+    try {
+        in >> root;
+    }
+    catch (...) {
+        return; // Файл поврежден или не является JSON
+    }
+
+    if (!merge) clear();
+
+    if (root.contains("shapes") && root["shapes"].is_array()) {
+        for (const auto& shapeJson : root["shapes"]) {
+            auto shape = createShapeFromJson(shapeJson, m_nextShapeId, merge);
+            if (shape) {
+                if (merge) {
+                    shape->setSelected(true);
+                    m_selectedShapes.push_back(shape.get());
+                }
+                m_shapes.push_back(std::move(shape));
+            }
+        }
+    }
+}
+void Scene::assignIdsRecursive(IShape* shape, int& nextId) {
+    if (!shape) return;
+    shape->setId(nextId++);
+    if (shape->getType() == "Group") {
+        Group* g = dynamic_cast<Group*>(shape);
+        if (g) {
+            for (auto& child : g->getChildren()) {
+                assignIdsRecursive(child.get(), nextId);
+            }
+        }
+    }
+}
+
+bool Scene::loadFromJsonString(const std::string& jsonStr, bool merge) {
+    nlohmann::json root;
+    try {
+        std::string cleanJson = jsonStr;
+        size_t start = cleanJson.find('{');
+        size_t end = cleanJson.rfind('}');
+        if (start != std::string::npos && end != std::string::npos && end > start) {
+            cleanJson = cleanJson.substr(start, end - start + 1);
+        }
+
+        root = nlohmann::json::parse(cleanJson);
+    }
+    catch (const std::exception& e) {
+        // Выводим ошибку и то, что прислала нейросеть, в окно Output студии
+        std::string errLog = "JSON Parse Error: " + std::string(e.what()) + "\nRaw response was:\n" + jsonStr + "\n";
+        OutputDebugStringA(errLog.c_str());
+
+        // Дублируем в файл ai_error_log.txt рядом с exe для удобства
+        std::ofstream errFile("ai_error_log.txt");
+        errFile << errLog;
+
+        return false;
+    }
+
+    if (!merge) clear();
+    else clearSelection();
+
+    if (root.contains("shapes") && root["shapes"].is_array()) {
+        for (const auto& shapeJson : root["shapes"]) {
+            auto shape = createShapeFromJson(shapeJson, m_nextShapeId, merge);
+            if (shape) {
+                if (merge) {
+                    assignIdsRecursive(shape.get(), m_nextShapeId);
+                    shape->setSelected(true);
+                    m_selectedShapes.push_back(shape.get());
+                }
+                m_shapes.push_back(std::move(shape));
+            }
+        }
+        return true;
+    }
+    return false;
 }

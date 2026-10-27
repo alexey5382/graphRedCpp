@@ -3,6 +3,8 @@
 #include <vector>
 #include <memory>
 #include <algorithm>
+#include "Export.h"
+#include "json/json.hpp"
 
 class SHAPE_API Group : public BaseShape {
 private:
@@ -37,4 +39,8 @@ public:
     void captureState() override;
     void restoreState() override;
     IShape* getHitShape(sf::Vector2f mousePos) override;
+
+    //new json
+    nlohmann::json toJson() const;
+    void fromJson(const nlohmann::json& j);
 };

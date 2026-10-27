@@ -2,6 +2,8 @@
 #include <SFML/Graphics.hpp>
 #include <string>
 #include "Export.h"
+#include "json/json.hpp"
+using json = nlohmann::json;
 struct ShapeSnapshot {
     sf::Vector2f position;
     sf::Vector2f size;
@@ -84,4 +86,8 @@ public:
     virtual void captureState() = 0;
     virtual void restoreState() = 0;
     virtual IShape* getHitShape(sf::Vector2f mousePos) = 0;
+
+    //new json
+    virtual nlohmann::json toJson() const = 0;
+    virtual void fromJson(const nlohmann::json& j) = 0;
 };

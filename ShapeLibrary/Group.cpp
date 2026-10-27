@@ -1,5 +1,8 @@
 #include "Group.h"
 #include "imgui.h"
+#include "PolygonShape.h"
+#include "EllipseShape.h"
+
 
 Group::Group(sf::Vector2f position) : BaseShape(position, { 1.f, 1.f }, true) {
     setName("New Group");
@@ -206,4 +209,46 @@ IShape* Group::getHitShape(sf::Vector2f mousePos) {
     }
     // Если в детей не попали, но клик внутри рамки группы — возвращаем саму группу
     return contains(mousePos) ? this : nullptr;
+}
+
+//new json
+nlohmann::json Group::toJson() const {
+    auto j = BaseShape::toJson();
+    j["children"] = nlohmann::json::array();
+    for (const auto& child : m_children) {
+        j["children"].push_back(child->toJson());
+    }
+    return j;
+}
+void Group::fromJson(const nlohmann::json& j) {
+    BaseShape::fromJson(j);
+    m_children.clear();
+
+    // Создание дочерних фигур через фабрику
+    if (j.contains("children") && j["children"].is_array()) {
+        for (const auto& childJson : j["children"]) {
+            std::string type = childJson.value("type", "");
+            std::unique_ptr<IShape> child = nullptr;
+
+            if (type == "Polygon") {
+                child = std::make_unique<PolygonShape>(sf::Vector2f(0, 0), sf::Vector2f(10, 10), true, std::vector<sf::Vector2f>{});
+            }
+            else if (type == "Ellipse" || type == "Circle") {
+                child = std::make_unique<EllipseShape>(sf::Vector2f(0, 0), 10.0f, 10.0f);
+            }
+            else if (type == "Group") {
+                child = std::make_unique<Group>(sf::Vector2f(0, 0));
+            }
+
+            if (child) {
+                child->fromJson(childJson);
+                m_children.push_back(std::move(child));
+            }
+        }
+    }
+    updateGeometry();
+    if (!m_children.empty()) {
+        sf::FloatRect b = getBounds();
+        m_position = { b.position.x + b.size.x / 2.0f, b.position.y + b.size.y / 2.0f };
+    }
 }

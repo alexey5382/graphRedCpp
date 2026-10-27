@@ -463,3 +463,60 @@ extern "C" SHAPE_API void InitShapeLibraryUI(ImGuiContext* ctx, void* alloc_func
 
     ImGui::SetAllocatorFunctions((ImGuiMemAllocFunc)alloc_func, (ImGuiMemFreeFunc)free_func, user_data);
 }
+
+//new json
+nlohmann::json BaseShape::toJson() const {
+    nlohmann::json j;
+    j["type"] = getType();
+    j["id"] = m_id;
+    j["name"] = m_name;
+    j["position"] = { {"x", m_position.x}, {"y", m_position.y} };
+    j["size"] = { {"x", m_size.x}, {"y", m_size.y} };
+    j["anchorOffset"] = { {"x", m_anchorOffset.x}, {"y", m_anchorOffset.y} };
+    j["rotation"] = m_rotation;
+    j["isClosed"] = m_isClosed;
+    j["fillColor"] = { m_fillColor.r, m_fillColor.g, m_fillColor.b, m_fillColor.a };
+
+    j["sideColors"] = nlohmann::json::array();
+    for (const auto& c : m_sideColors)
+        j["sideColors"].push_back({ c.r, c.g, c.b, c.a });
+
+    j["sideThicknesses"] = m_sideThicknesses;
+    return j;
+} 
+
+void BaseShape::fromJson(const nlohmann::json& j) {
+    if (j.contains("id")) m_id = j["id"].get<int>();
+    if (j.contains("name")) m_name = j["name"].get<std::string>();
+    if (j.contains("isClosed")) m_isClosed = j["isClosed"].get<bool>();
+    if (j.contains("groupId")) m_groupId = j["groupId"].get<int>();
+    if (j.contains("rotation")) m_rotation = j["rotation"].get<float>();
+
+    if (j.contains("position")) {
+        m_position.x = j["position"].value("x", 0.0f);
+        m_position.y = j["position"].value("y", 0.0f);
+    }
+    if (j.contains("size")) {
+        m_size.x = j["size"].value("x", 10.0f);
+        m_size.y = j["size"].value("y", 10.0f);
+    }
+    if (j.contains("anchorOffset")) {
+        m_anchorOffset.x = j["anchorOffset"].value("x", 0.0f);
+        m_anchorOffset.y = j["anchorOffset"].value("y", 0.0f);
+    }
+    if (j.contains("fillColor") && j["fillColor"].is_array() && j["fillColor"].size() == 4) {
+        m_fillColor = sf::Color(j["fillColor"][0], j["fillColor"][1], j["fillColor"][2], j["fillColor"][3]);
+    }
+
+    if (j.contains("sideColors") && j["sideColors"].is_array()) {
+        m_sideColors.clear();
+        for (const auto& c : j["sideColors"]) {
+            if (c.is_array() && c.size() == 4)
+                m_sideColors.push_back(sf::Color(c[0], c[1], c[2], c[3]));
+        }
+    }
+
+    if (j.contains("sideThicknesses") && j["sideThicknesses"].is_array()) {
+        m_sideThicknesses = j["sideThicknesses"].get<std::vector<float>>();
+    }
+}

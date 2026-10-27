@@ -2,7 +2,8 @@
 #include "IShape.h"
 #include <vector>
 #include <string>
-
+#include "Export.h"
+#include "json/json.hpp"
 class SHAPE_API BaseShape : public IShape {
 protected:
     sf::Vector2f m_position; 
@@ -83,4 +84,8 @@ public:
     void captureState() override;
     void restoreState() override;
     IShape* getHitShape(sf::Vector2f mousePos) override;
+
+    //new json
+    nlohmann::json toJson() const override;
+    void fromJson(const nlohmann::json& j) override;
 };

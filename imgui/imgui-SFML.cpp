@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <memory>
 #include <vector>
+#include <windows.h> // Убедитесь, что windows.h доступен
 
 #if defined(__APPLE__)
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -205,12 +206,26 @@ void setClipboardText(ImGuiContext* /*ctx*/, const char* text)
     sf::Clipboard::setString(sf::String::fromUtf8(text, text + std::strlen(text)));
 }
 
-[[nodiscard]] const char* getClipboardText(ImGuiContext* /*ctx*/)
-{
+[[nodiscard]] const char* getClipboardText(ImGuiContext* /*ctx*/) {
     static std::string s_clipboardText;
+    s_clipboardText.clear();
 
-    auto tmp = sf::Clipboard::getString().toUtf8();
-    s_clipboardText.assign(tmp.begin(), tmp.end());
+    if (!OpenClipboard(nullptr)) {
+        return "";
+    }
+
+    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+    if (hData) {
+        if (const wchar_t* wstr = static_cast<const wchar_t*>(GlobalLock(hData))) {
+            int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nullptr, 0, nullptr, nullptr);
+            if (sizeNeeded > 0) {
+                s_clipboardText.resize(sizeNeeded - 1);
+                WideCharToMultiByte(CP_UTF8, 0, wstr, -1, &s_clipboardText[0], sizeNeeded, nullptr, nullptr);
+            }
+            GlobalUnlock(hData);
+        }
+    }
+    CloseClipboard();
     return s_clipboardText.c_str();
 }
 

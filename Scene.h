@@ -100,4 +100,9 @@ public:
 	void copySelected();
 	void paste();
 
+	//new json
+	std::unique_ptr<IShape> createShapeFromJson(const nlohmann::json& j, int& nextId, bool merge);
+	bool loadFromJsonString(const std::string& jsonStr, bool merge = true);
+	static void assignIdsRecursive(IShape* shape, int& nextId);
+
 };
